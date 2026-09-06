@@ -105,6 +105,12 @@ interface QuizItemDao {
 
     @Query("SELECT contentHash FROM quiz_items")
     suspend fun allHashes(): List<String>
+
+    @Query("DELETE FROM quiz_items WHERE consumed = 1")
+    suspend fun deleteConsumed(): Int
+
+    @Query("DELETE FROM quiz_items")
+    suspend fun deleteAll(): Int
 }
 
 @Dao

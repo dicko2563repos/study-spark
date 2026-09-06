@@ -21,7 +21,7 @@ object SeedData {
         db.quizItemDao().upsertAll(seedQuizzes())
     }
 
-    private fun seedQuizzes(): List<QuizItemEntity> = listOf(
+    fun seedQuizzes(): List<QuizItemEntity> = listOf(
         quiz(
             id = "py-print-1",
             topicId = "python",

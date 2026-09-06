@@ -18,6 +18,7 @@ import com.studyspark.app.data.entity.QuizAttemptEntity
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.data.entity.TopicSkillEntity
 import com.studyspark.app.data.entity.UserProfileEntity
+import com.studyspark.app.data.seed.SeedData
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
@@ -33,7 +34,8 @@ class StudyRepository(
     private val memory: MemoryFileStore,
     private val routerProvider: () -> LlmRouter?,
     private val plannerProvider: () -> QuizPlanner?,
-    private val rateLimitTracker: RateLimitTracker
+    private val rateLimitTracker: RateLimitTracker,
+    private val hasGroqKey: () -> Boolean = { false }
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -234,9 +236,10 @@ class StudyRepository(
                     lastError = e.message ?: e::class.java.simpleName
                     if (isRateLimitError(lastError)) {
                         rateLimited = true
+                        if (!hasGroqKey()) break
+                    } else if (attempts >= 2) {
                         break
                     }
-                    if (attempts >= 2) break
                 }
             }
         } else {
@@ -257,9 +260,30 @@ class StudyRepository(
             recycled = recycled,
             ready = ready,
             hadPlanner = planner != null,
+            hasGroqKey = hasGroqKey(),
             rateLimited = rateLimited,
             lastError = lastError
         )
+    }
+
+    suspend fun clearAnsweredQuizzes(): String {
+        val removed = db.quizItemDao().deleteConsumed()
+        val ready = db.quizItemDao().readyCount()
+        return "Removed $removed answered quiz${if (removed == 1) "" else "zes"}. $ready still ready (unanswered)."
+    }
+
+    /**
+     * Wipe the quiz bank so recycle cannot revive stale items. Does not reset skills or attempts.
+     */
+    suspend fun clearAllQuizzes(): String {
+        db.quizItemDao().deleteAll()
+        return "Quiz bank cleared. Use Generate more on Quiz, or Restore seed quizzes below."
+    }
+
+    suspend fun restoreSeedQuizzes(): String {
+        db.quizItemDao().upsertAll(SeedData.seedQuizzes())
+        val ready = db.quizItemDao().readyCount()
+        return "Restored seed quizzes. Bank: $ready ready."
     }
 
     private fun isRateLimitError(message: String?): Boolean {
@@ -272,13 +296,18 @@ class StudyRepository(
         recycled: Int,
         ready: Int,
         hadPlanner: Boolean,
+        hasGroqKey: Boolean,
         rateLimited: Boolean,
         lastError: String?
     ): String {
         val parts = mutableListOf<String>()
         if (added > 0) parts += "Added $added new AI quiz${if (added == 1) "" else "zes"}"
         if (rateLimited) {
-            parts += "Gemini rate-limited (429) — add a free Groq key in Settings for failover, or wait a bit"
+            parts += if (hasGroqKey) {
+                "Gemini rate-limited (429); Groq failover is on — if no new quizzes appeared, Groq also failed${lastError?.let { " ($it)" } ?: ""}"
+            } else {
+                "Gemini rate-limited (429) — add a Groq key in Settings for failover, or wait a bit"
+            }
         }
         if (recycled > 0) {
             parts += when {

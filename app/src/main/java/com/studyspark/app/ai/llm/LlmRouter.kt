@@ -12,14 +12,23 @@ class LlmRouter(
     private val failover: LlmClient?,
     private val rateLimitTracker: RateLimitTracker
 ) {
+    @Volatile
+    private var skipPrimary = false
+
     suspend fun chat(request: LlmChatRequest): LlmChatResponse {
+        val backup = failover
+        if (skipPrimary && backup != null) {
+            return backup.chat(request).also {
+                rateLimitTracker.recordCall(it.provider)
+            }
+        }
         return try {
             primary.chat(request).also {
                 rateLimitTracker.recordCall(it.provider)
             }
         } catch (primaryError: LlmException) {
-            val backup = failover
-                ?: throw primaryError
+            if (isRateLimit(primaryError)) skipPrimary = true
+            if (backup == null) throw primaryError
             if (!primaryError.retryable && !shouldAttemptFailover(primaryError)) {
                 throw primaryError
             }
@@ -34,8 +43,7 @@ class LlmRouter(
                 )
             }
         } catch (e: IOException) {
-            val backup = failover
-                ?: throw LlmException("Network error: ${e.message}", retryable = true)
+            if (backup == null) throw LlmException("Network error: ${e.message}", retryable = true)
             try {
                 backup.chat(request).also {
                     rateLimitTracker.recordCall(it.provider)
@@ -47,6 +55,11 @@ class LlmRouter(
                 )
             }
         }
+    }
+
+    private fun isRateLimit(error: LlmException): Boolean {
+        val msg = error.message.orEmpty().lowercase()
+        return error.retryable && ("429" in msg || "unavailable" in msg || "quota" in msg)
     }
 
     private fun shouldAttemptFailover(error: LlmException): Boolean {

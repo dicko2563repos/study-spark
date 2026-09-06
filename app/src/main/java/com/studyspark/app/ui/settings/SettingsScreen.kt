@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -25,8 +27,12 @@ import com.studyspark.app.data.repository.InterruptStyle
 fun SettingsScreen(
     settings: AppSettings,
     topics: List<TopicSkillEntity>,
+    bankStatus: String?,
     onSettingsChange: (AppSettings) -> Unit,
-    onToggleTopic: (String, Boolean) -> Unit
+    onToggleTopic: (String, Boolean) -> Unit,
+    onClearAnswered: () -> Unit,
+    onClearAllQuizzes: () -> Unit,
+    onRestoreSeeds: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -59,9 +65,26 @@ fun SettingsScreen(
             singleLine = true
         )
         Text(
-            "Tip: free Gemini tiers rate-limit quickly when generating many quizzes. Groq is used automatically as backup when both keys are set. The app also refills the quiz bank about once an hour in the background when you have network.",
+            "Tip: free Gemini tiers rate-limit quickly. With a Groq key set, the app failovers after a Gemini 429 and then keeps using Groq for that session. The quiz bank also refills about once an hour when online.",
             style = MaterialTheme.typography.bodyMedium
         )
+        Text("Quiz bank", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Answered quizzes can be recycled into the ready count, which is why Home can show 20+ of the same items. Clear them to force new generation.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        bankStatus?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium)
+        }
+        OutlinedButton(onClick = onClearAnswered, modifier = Modifier.fillMaxWidth()) {
+            Text("Remove answered quizzes")
+        }
+        Button(onClick = onClearAllQuizzes, modifier = Modifier.fillMaxWidth()) {
+            Text("Clear entire quiz bank")
+        }
+        OutlinedButton(onClick = onRestoreSeeds, modifier = Modifier.fillMaxWidth()) {
+            Text("Restore seed quizzes")
+        }
         OutlinedTextField(
             value = settings.verifyServiceUrl,
             onValueChange = { onSettingsChange(settings.copy(verifyServiceUrl = it.trim())) },

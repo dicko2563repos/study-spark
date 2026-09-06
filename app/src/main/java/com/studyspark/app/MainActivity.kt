@@ -248,12 +248,29 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 settings = settings,
                                 topics = topics,
+                                bankStatus = quizStatus,
                                 onSettingsChange = { next ->
                                     settingsRepo.update { next }
                                     QuizScheduler.ensureScheduled(this@MainActivity, next)
                                 },
                                 onToggleTopic = { id, enabled ->
                                     scope.launch { repo.setTopicEnabled(id, enabled) }
+                                },
+                                onClearAnswered = {
+                                    scope.launch { quizStatus = repo.clearAnsweredQuizzes() }
+                                },
+                                onClearAllQuizzes = {
+                                    scope.launch {
+                                        quizStatus = repo.clearAllQuizzes()
+                                        quizItem = null
+                                        choices = emptyList()
+                                        selected = null
+                                        revealed = false
+                                        quizOutcome = null
+                                    }
+                                },
+                                onRestoreSeeds = {
+                                    scope.launch { quizStatus = repo.restoreSeedQuizzes() }
                                 }
                             )
                         }
