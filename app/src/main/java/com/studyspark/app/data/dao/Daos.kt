@@ -77,11 +77,27 @@ interface QuizItemDao {
     @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND verified = 1")
     fun observeReadyCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND verified = 1")
+    suspend fun readyCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<QuizItemEntity>)
 
     @Query("UPDATE quiz_items SET consumed = 1 WHERE id = :id")
     suspend fun markConsumed(id: String)
+
+    @Query(
+        """
+        UPDATE quiz_items SET consumed = 0
+        WHERE id IN (
+            SELECT id FROM quiz_items
+            WHERE consumed = 1 AND verificationMethod = 'seed'
+            ORDER BY createdAt ASC
+            LIMIT :limit
+        )
+        """
+    )
+    suspend fun recycleSeedQuizzes(limit: Int): Int
 
     @Query("SELECT contentHash FROM quiz_items")
     suspend fun allHashes(): List<String>

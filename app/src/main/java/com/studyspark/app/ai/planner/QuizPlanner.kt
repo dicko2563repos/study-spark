@@ -19,16 +19,20 @@ class QuizPlanner(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun generateDraft(topic: TopicSkillEntity): Pair<GeneratedQuizDraft, VerificationResult>? {
+    suspend fun generateDraft(topic: TopicSkillEntity): Pair<GeneratedQuizDraft, VerificationResult> {
         val context = memory.packContext()
         val prompt = """
-            Create ONE short quiz item as JSON with fields:
-            topicId, format (output|syntax|knowledge|purpose), skillBand (1-5), prompt,
-            codeSnippet (nullable), choices (array of 3-4 strings), correctIndex,
-            explanation, conceptTags (array), whyThisQuestion, runnableLanguage (python|c|javascript|null).
-            Topic: ${topic.topicId} (${topic.displayName}), learner level ~ ${topic.level}.
-            Keep snippets short. Prefer factual, checkable items.
-            Return JSON only.
+            Create ONE short multiple-choice quiz item as JSON with fields:
+            topicId, format, skillBand (1-5), prompt, codeSnippet (null), choices (3-4 strings),
+            correctIndex, explanation, conceptTags (array), whyThisQuestion, runnableLanguage (null).
+
+            Rules for this phone app (important):
+            - format MUST be "knowledge" or "purpose" only (NOT output or syntax).
+            - Do NOT include runnable code that must be executed to verify the answer.
+            - codeSnippet must be null, or a tiny illustrative snippet that is NOT required to compute the answer.
+            - Topic: ${topic.topicId} (${topic.displayName}), learner level ~ ${"%.1f".format(topic.level)}.
+            - Keep it factual and appropriate for that level.
+            Return JSON only, no markdown fences.
         """.trimIndent()
 
         val response = router.chat(
@@ -41,9 +45,15 @@ class QuizPlanner(
                 temperature = 0.3
             )
         )
-        val draft = json.decodeFromString<GeneratedQuizDraft>(response.text)
-        val result = verifier.validateStructure(draft)
-        return draft to result
+        val draft = json.decodeFromString<GeneratedQuizDraft>(extractJsonObject(response.text))
+        // Normalize phone-safe drafts even if the model slips
+        val safe = draft.copy(
+            format = if (draft.format in setOf("knowledge", "purpose")) draft.format else "knowledge",
+            runnableLanguage = null,
+            codeSnippet = draft.codeSnippet?.takeIf { draft.format == "purpose" && it.length < 120 }
+        )
+        val result = verifier.validateStructure(safe)
+        return safe to result
     }
 
     fun toEntity(draft: GeneratedQuizDraft, verified: Boolean, method: String): QuizItemEntity {
@@ -55,13 +65,13 @@ class QuizPlanner(
         }
         val hashInput = listOf(
             draft.topicId, draft.format, draft.prompt, draft.codeSnippet.orEmpty(),
-            choicesJson, draft.correctIndex.toString()
+            choicesJson, draft.correctIndex.toString(), System.nanoTime().toString()
         ).joinToString("|")
         return QuizItemEntity(
             id = "gen-" + sha256(hashInput).take(16),
             topicId = draft.topicId,
             format = draft.format,
-            skillBand = draft.skillBand,
+            skillBand = draft.skillBand.coerceIn(1, 5),
             prompt = draft.prompt,
             codeSnippet = draft.codeSnippet,
             choicesJson = choicesJson,
@@ -73,6 +83,20 @@ class QuizPlanner(
             contentHash = sha256(hashInput),
             whyThisQuestion = draft.whyThisQuestion
         )
+    }
+
+    private fun extractJsonObject(raw: String): String {
+        val trimmed = raw.trim()
+        val fenced = Regex("""```(?:json)?\s*([\s\S]*?)```""", RegexOption.IGNORE_CASE)
+            .find(trimmed)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+        val candidate = fenced ?: trimmed
+        val start = candidate.indexOf('{')
+        val end = candidate.lastIndexOf('}')
+        if (start >= 0 && end > start) return candidate.substring(start, end + 1)
+        return candidate
     }
 
     private fun sha256(value: String): String {

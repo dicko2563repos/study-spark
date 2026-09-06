@@ -151,25 +151,71 @@ class StudyRepository(
     }
 
     suspend fun topUpKnowledgeQuizzesIfPossible() {
-        val planner = plannerProvider() ?: return
+        ensureQuizSupply(minReady = 3)
+    }
+
+    /**
+     * Generate phone-safe knowledge quizzes until [minReady] are available, or recycle seed items.
+     * Returns a short status string for the UI.
+     */
+    suspend fun ensureQuizSupply(minReady: Int = 3): String {
+        val existing = db.quizItemDao().readyCount()
+        if (existing >= minReady) return "Ready: $existing quizzes"
+
+        val planner = plannerProvider()
+        if (planner == null) {
+            val recycled = db.quizItemDao().recycleSeedQuizzes(minReady)
+            return if (recycled > 0) {
+                "Recycled $recycled seed quizzes (add a Gemini key for new AI questions)."
+            } else {
+                "No API key and no quizzes left. Add a Gemini key in Settings."
+            }
+        }
+
         val topics = db.topicSkillDao().enabled()
-        topics.take(2).forEach { topic ->
-            runCatching {
-                val pair = planner.generateDraft(topic) ?: return@forEach
-                val (draft, result) = pair
+        if (topics.isEmpty()) return "Enable at least one topic in Settings."
+
+        var added = 0
+        var attempts = 0
+        val maxAttempts = (minReady - existing).coerceAtLeast(1) * 3
+        var lastError: String? = null
+
+        while (db.quizItemDao().readyCount() < minReady && attempts < maxAttempts) {
+            attempts++
+            val topic = topics[attempts % topics.size]
+            try {
+                val (draft, result) = planner.generateDraft(topic)
                 when (result) {
                     is VerificationResult.AcceptedLight -> {
                         quizCache.putVerified(
                             listOf(planner.toEntity(draft, verified = true, method = result.method))
                         )
+                        added++
                     }
                     is VerificationResult.NeedsSandbox -> {
-                        // Keep for later PC verify service — do not show as verified
+                        // Should be rare now; count as soft miss and keep trying
+                        lastError = "Skipped code quiz (needs PC verifier)"
                     }
-                    is VerificationResult.Rejected -> Unit
+                    is VerificationResult.Rejected -> {
+                        lastError = result.reason
+                    }
                 }
+            } catch (e: Exception) {
+                lastError = e.message ?: e::class.java.simpleName
+                break
             }
         }
+
+        val ready = db.quizItemDao().readyCount()
+        if (ready == 0) {
+            val recycled = db.quizItemDao().recycleSeedQuizzes(minReady)
+            if (recycled > 0) {
+                return "AI top-up failed (${lastError ?: "unknown"}). Recycled $recycled seed quizzes."
+            }
+            return "Could not generate quizzes: ${lastError ?: "unknown error"}"
+        }
+        return if (added > 0) "Added $added AI quizzes ($ready ready)."
+        else "Ready: $ready quizzes${lastError?.let { " (note: $it)" } ?: ""}"
     }
 
     fun parseChoices(item: QuizItemEntity): List<String> =

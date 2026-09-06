@@ -13,10 +13,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -30,9 +32,12 @@ fun QuizScreen(
     selected: Int?,
     revealed: Boolean,
     outcome: QuizAnswerOutcome?,
+    generating: Boolean,
+    statusMessage: String?,
     onSelect: (Int) -> Unit,
     onSubmit: () -> Unit,
     onDontKnow: () -> Unit,
+    onGenerateMore: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -45,7 +50,23 @@ fun QuizScreen(
     ) {
         Text("Quiz", style = MaterialTheme.typography.headlineMedium)
         if (item == null) {
-            Text("No verified quizzes ready. Seed bank may still be loading, or enable more topics in Settings.")
+            if (generating) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text("Generating new quizzes…")
+                }
+            } else {
+                Text(
+                    statusMessage
+                        ?: "No quizzes ready. Generate more with your Gemini key, or recycle seed questions."
+                )
+                Button(onClick = onGenerateMore, modifier = Modifier.fillMaxWidth()) {
+                    Text("Generate more quizzes")
+                }
+            }
             OutlinedButton(onClick = onBack) { Text("Back") }
             return
         }
@@ -101,6 +122,9 @@ fun QuizScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AssistChip(onClick = {}, label = { Text(item.format) })
             AssistChip(onClick = {}, label = { Text(if (item.verified) "verified" else "unverified") })
+        }
+        statusMessage?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

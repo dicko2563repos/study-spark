@@ -80,6 +80,31 @@ class MainActivity : ComponentActivity() {
                 var quizOutcome by remember { mutableStateOf<QuizAnswerOutcome?>(null) }
                 var quizStartedAt by remember { mutableStateOf(0L) }
                 var agentBusy by remember { mutableStateOf(false) }
+                var quizGenerating by remember { mutableStateOf(false) }
+                var quizStatus by remember { mutableStateOf<String?>(null) }
+
+                suspend fun loadNextQuiz(topUpIfEmpty: Boolean = true) {
+                    var next = repo.nextQuiz()
+                    if (next == null && topUpIfEmpty) {
+                        quizGenerating = true
+                        quizStatus = "Generating quizzes…"
+                        try {
+                            quizStatus = repo.ensureQuizSupply(minReady = 3)
+                            next = repo.nextQuiz()
+                        } finally {
+                            quizGenerating = false
+                        }
+                    }
+                    quizItem = next
+                    choices = next?.let { repo.parseChoices(it) } ?: emptyList()
+                    selected = null
+                    revealed = false
+                    quizOutcome = null
+                    quizStartedAt = System.currentTimeMillis()
+                    if (next != null && quizStatus?.startsWith("Generating") == true) {
+                        quizStatus = null
+                    }
+                }
 
                 LaunchedEffect(Unit) {
                     nudge = repo.nextStudyNudge()
@@ -131,13 +156,7 @@ class MainActivity : ComponentActivity() {
                         composable(Dest.Quiz.route) {
                             LaunchedEffect(Unit) {
                                 if (quizItem == null || revealed) {
-                                    val next = repo.nextQuiz()
-                                    quizItem = next
-                                    choices = next?.let { repo.parseChoices(it) } ?: emptyList()
-                                    selected = null
-                                    revealed = false
-                                    quizOutcome = null
-                                    quizStartedAt = System.currentTimeMillis()
+                                    loadNextQuiz(topUpIfEmpty = true)
                                 }
                             }
                             QuizScreen(
@@ -146,6 +165,8 @@ class MainActivity : ComponentActivity() {
                                 selected = selected,
                                 revealed = revealed,
                                 outcome = quizOutcome,
+                                generating = quizGenerating,
+                                statusMessage = quizStatus,
                                 onSelect = { selected = it },
                                 onSubmit = {
                                     val item = quizItem ?: return@QuizScreen
@@ -155,6 +176,7 @@ class MainActivity : ComponentActivity() {
                                         quizOutcome = repo.answerQuiz(item, choice, latency)
                                         revealed = true
                                         nudge = repo.nextStudyNudge()
+                                        repo.ensureQuizSupply(minReady = 3)
                                     }
                                 },
                                 onDontKnow = {
@@ -169,17 +191,17 @@ class MainActivity : ComponentActivity() {
                                         )
                                         revealed = true
                                         nudge = repo.nextStudyNudge()
+                                        repo.ensureQuizSupply(minReady = 3)
+                                    }
+                                },
+                                onGenerateMore = {
+                                    scope.launch {
+                                        loadNextQuiz(topUpIfEmpty = true)
                                     }
                                 },
                                 onNext = {
                                     scope.launch {
-                                        val next = repo.nextQuiz()
-                                        quizItem = next
-                                        choices = next?.let { repo.parseChoices(it) } ?: emptyList()
-                                        selected = null
-                                        revealed = false
-                                        quizOutcome = null
-                                        quizStartedAt = System.currentTimeMillis()
+                                        loadNextQuiz(topUpIfEmpty = true)
                                     }
                                 },
                                 onBack = { nav.navigate(Dest.Home.route) }
