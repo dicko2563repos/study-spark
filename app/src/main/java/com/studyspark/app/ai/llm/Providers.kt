@@ -70,7 +70,9 @@ class GeminiClient(
         }
 
         val httpRequest = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+            .header("x-goog-api-key", key)
+            .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON))
             .build()
 
@@ -80,26 +82,61 @@ class GeminiClient(
                 throw LlmException("Gemini unavailable (${response.code})", retryable = true)
             }
             if (!response.isSuccessful) {
-                throw LlmException("Gemini error ${response.code}: $raw", retryable = false)
+                // Fall back to query-param auth for classic AIza keys if header auth fails
+                if (response.code == 400 || response.code == 401 || response.code == 403) {
+                    val retry = Request.Builder()
+                        .url(
+                            "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
+                        )
+                        .post(body.toString().toRequestBody(JSON))
+                        .build()
+                    http.newCall(retry).execute().use { second ->
+                        val raw2 = second.body?.string().orEmpty()
+                        if (second.code == 429 || second.code >= 500) {
+                            throw LlmException("Gemini unavailable (${second.code})", retryable = true)
+                        }
+                        if (!second.isSuccessful) {
+                            throw LlmException(
+                                "Gemini error ${second.code}: ${summarizeApiError(raw2.ifBlank { raw })}",
+                                retryable = false
+                            )
+                        }
+                        return@withContext parseGeminiResponse(raw2)
+                    }
+                }
+                throw LlmException(
+                    "Gemini error ${response.code}: ${summarizeApiError(raw)}",
+                    retryable = false
+                )
             }
-            val parsed = json.parseToJsonElement(raw).jsonObject
-            val text = parsed["candidates"]
-                ?.jsonArray
-                ?.firstOrNull()
-                ?.jsonObject
-                ?.get("content")
-                ?.jsonObject
-                ?.get("parts")
-                ?.jsonArray
-                ?.firstOrNull()
-                ?.jsonObject
-                ?.get("text")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                .orEmpty()
-            if (text.isBlank()) throw LlmException("Empty Gemini response", retryable = true)
-            LlmChatResponse(text = text, provider = provider, model = model)
+            parseGeminiResponse(raw)
         }
+    }
+
+    private fun parseGeminiResponse(raw: String): LlmChatResponse {
+        val parsed = json.parseToJsonElement(raw).jsonObject
+        val text = parsed["candidates"]
+            ?.jsonArray
+            ?.firstOrNull()
+            ?.jsonObject
+            ?.get("content")
+            ?.jsonObject
+            ?.get("parts")
+            ?.jsonArray
+            ?.firstOrNull()
+            ?.jsonObject
+            ?.get("text")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            .orEmpty()
+        if (text.isBlank()) throw LlmException("Empty Gemini response", retryable = true)
+        return LlmChatResponse(text = text, provider = provider, model = model)
+    }
+
+    private fun summarizeApiError(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return "(no details)"
+        return if (trimmed.length <= 280) trimmed else trimmed.take(280) + "…"
     }
 
     companion object {

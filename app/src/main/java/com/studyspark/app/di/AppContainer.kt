@@ -21,10 +21,23 @@ class AppContainer(context: Context) {
 
     private fun routerOrNull(): LlmRouter? {
         val settings = settingsRepository.current()
-        if (settings.geminiApiKey.isBlank() && settings.groqApiKey.isBlank()) return null
+        val geminiKey = settings.geminiApiKey.trim()
+        val groqKey = settings.groqApiKey.trim()
+        if (geminiKey.isBlank() && groqKey.isBlank()) return null
+
+        val primary = when {
+            geminiKey.isNotBlank() -> GeminiClient(apiKeyProvider = { settingsRepository.current().geminiApiKey })
+            else -> GroqClient(apiKeyProvider = { settingsRepository.current().groqApiKey })
+        }
+        val failover = when {
+            geminiKey.isNotBlank() && groqKey.isNotBlank() ->
+                GroqClient(apiKeyProvider = { settingsRepository.current().groqApiKey })
+            groqKey.isNotBlank() && geminiKey.isBlank() -> null // already primary
+            else -> null
+        }
         return LlmRouter(
-            primary = GeminiClient(apiKeyProvider = { settingsRepository.current().geminiApiKey }),
-            failover = GroqClient(apiKeyProvider = { settingsRepository.current().groqApiKey }),
+            primary = primary,
+            failover = failover,
             rateLimitTracker = rateLimitTracker
         )
     }
