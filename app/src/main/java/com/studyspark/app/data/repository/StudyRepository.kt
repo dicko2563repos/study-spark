@@ -151,71 +151,106 @@ class StudyRepository(
     }
 
     suspend fun topUpKnowledgeQuizzesIfPossible() {
-        ensureQuizSupply(minReady = 3)
+        ensureQuizSupply(minReady = DEFAULT_READY_TARGET)
     }
 
     /**
-     * Generate phone-safe knowledge quizzes until [minReady] are available, or recycle seed items.
+     * Generate phone-safe knowledge quizzes until [minReady] are available.
+     * Prefers new AI items; recycles a random sample of consumed quizzes only as fallback.
      * Returns a short status string for the UI.
      */
-    suspend fun ensureQuizSupply(minReady: Int = 3): String {
-        val existing = db.quizItemDao().readyCount()
-        if (existing >= minReady) return "Ready: $existing quizzes"
-
-        val planner = plannerProvider()
-        if (planner == null) {
-            val recycled = db.quizItemDao().recycleSeedQuizzes(minReady)
-            return if (recycled > 0) {
-                "Recycled $recycled seed quizzes (add a Gemini key for new AI questions)."
-            } else {
-                "No API key and no quizzes left. Add a Gemini key in Settings."
-            }
-        }
-
+    suspend fun ensureQuizSupply(minReady: Int = DEFAULT_READY_TARGET): String {
         val topics = db.topicSkillDao().enabled()
         if (topics.isEmpty()) return "Enable at least one topic in Settings."
+        val topicIds = topics.map { it.topicId }
 
+        val existing = db.quizItemDao().readyCount()
+        if (existing >= minReady) return "Ready: $existing quizzes in bank."
+
+        val needed = (minReady - existing).coerceAtLeast(1)
+        val planner = plannerProvider()
         var added = 0
-        var attempts = 0
-        val maxAttempts = (minReady - existing).coerceAtLeast(1) * 3
         var lastError: String? = null
 
-        while (db.quizItemDao().readyCount() < minReady && attempts < maxAttempts) {
-            attempts++
-            val topic = topics[attempts % topics.size]
-            try {
-                val (draft, result) = planner.generateDraft(topic)
-                when (result) {
-                    is VerificationResult.AcceptedLight -> {
-                        quizCache.putVerified(
-                            listOf(planner.toEntity(draft, verified = true, method = result.method))
-                        )
-                        added++
+        if (planner != null) {
+            var attempts = 0
+            val maxAttempts = needed * 4
+            while (db.quizItemDao().readyCount() < minReady && attempts < maxAttempts) {
+                attempts++
+                val topic = topics[attempts % topics.size]
+                try {
+                    val (draft, result) = planner.generateDraft(topic)
+                    when (result) {
+                        is VerificationResult.AcceptedLight -> {
+                            val before = db.quizItemDao().readyCount()
+                            quizCache.putVerified(
+                                listOf(planner.toEntity(draft, verified = true, method = "light"))
+                            )
+                            if (db.quizItemDao().readyCount() > before) added++
+                            else lastError = "Generated quiz was a duplicate"
+                        }
+                        is VerificationResult.NeedsSandbox -> {
+                            lastError = "Skipped code quiz (needs PC verifier)"
+                        }
+                        is VerificationResult.Rejected -> {
+                            lastError = result.reason
+                        }
                     }
-                    is VerificationResult.NeedsSandbox -> {
-                        // Should be rare now; count as soft miss and keep trying
-                        lastError = "Skipped code quiz (needs PC verifier)"
-                    }
-                    is VerificationResult.Rejected -> {
-                        lastError = result.reason
-                    }
+                } catch (e: Exception) {
+                    lastError = e.message ?: e::class.java.simpleName
+                    // Keep trying a couple more times on transient errors
+                    if (attempts >= 2) break
                 }
-            } catch (e: Exception) {
-                lastError = e.message ?: e::class.java.simpleName
-                break
             }
+        } else {
+            lastError = "No API key set"
         }
 
-        val ready = db.quizItemDao().readyCount()
-        if (ready == 0) {
-            val recycled = db.quizItemDao().recycleSeedQuizzes(minReady)
-            if (recycled > 0) {
-                return "AI top-up failed (${lastError ?: "unknown"}). Recycled $recycled seed quizzes."
-            }
-            return "Could not generate quizzes: ${lastError ?: "unknown error"}"
+        var ready = db.quizItemDao().readyCount()
+        var recycled = 0
+        if (ready < minReady) {
+            val stillNeeded = (minReady - ready).coerceAtLeast(1)
+            // Prefer a wider rotate than the shortfall so the bank does not stay tiny
+            val recycleLimit = max(stillNeeded, min(minReady, 8))
+            recycled = db.quizItemDao().recycleConsumedQuizzes(topicIds, recycleLimit)
+            ready = db.quizItemDao().readyCount()
         }
-        return if (added > 0) "Added $added AI quizzes ($ready ready)."
-        else "Ready: $ready quizzes${lastError?.let { " (note: $it)" } ?: ""}"
+
+        return buildSupplyStatus(
+            added = added,
+            recycled = recycled,
+            ready = ready,
+            hadPlanner = planner != null,
+            lastError = lastError
+        )
+    }
+
+    private fun buildSupplyStatus(
+        added: Int,
+        recycled: Int,
+        ready: Int,
+        hadPlanner: Boolean,
+        lastError: String?
+    ): String {
+        val parts = mutableListOf<String>()
+        if (added > 0) parts += "Added $added new AI quiz${if (added == 1) "" else "zes"}"
+        if (recycled > 0) {
+            parts += if (hadPlanner && added == 0) {
+                "AI top-up failed (${lastError ?: "unknown"}) — recycled $recycled prior quiz${if (recycled == 1) "" else "zes"}"
+            } else if (!hadPlanner) {
+                "Recycled $recycled quiz${if (recycled == 1) "" else "zes"} (add a Gemini key for new AI questions)"
+            } else {
+                "Recycled $recycled prior quiz${if (recycled == 1) "" else "zes"} to fill the bank"
+            }
+        }
+        if (parts.isEmpty()) {
+            return when {
+                ready > 0 -> "Ready: $ready quizzes${lastError?.let { " (note: $it)" } ?: ""}."
+                lastError != null -> "Could not refill quizzes: $lastError"
+                else -> "No quizzes available. Enable topics or add a Gemini key."
+            }
+        }
+        return parts.joinToString(". ") + ". Bank: $ready ready."
     }
 
     fun parseChoices(item: QuizItemEntity): List<String> =
@@ -268,5 +303,9 @@ class StudyRepository(
             " I saved that as a quiz preference for future sessions."
         } else ""
         return "I'm in offline/local mode (no API keys yet). Your progress, courses, and memory files are still tracked.$prefHint Add a free Gemini or Groq key in Settings to unlock live coaching."
+    }
+
+    companion object {
+        const val DEFAULT_READY_TARGET = 8
     }
 }

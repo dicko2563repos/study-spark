@@ -65,7 +65,7 @@ interface QuizItemDao {
         """
         SELECT * FROM quiz_items
         WHERE consumed = 0 AND verified = 1 AND topicId IN (:topicIds)
-        ORDER BY skillBand ASC, createdAt ASC
+        ORDER BY RANDOM()
         LIMIT 1
         """
     )
@@ -86,18 +86,22 @@ interface QuizItemDao {
     @Query("UPDATE quiz_items SET consumed = 1 WHERE id = :id")
     suspend fun markConsumed(id: String)
 
+    /**
+     * Reactivate a random sample of consumed quizzes for enabled topics.
+     * Uses RANDOM() so the same oldest seeds are not always revived.
+     */
     @Query(
         """
         UPDATE quiz_items SET consumed = 0
         WHERE id IN (
             SELECT id FROM quiz_items
-            WHERE consumed = 1 AND verificationMethod = 'seed'
-            ORDER BY createdAt ASC
+            WHERE consumed = 1 AND verified = 1 AND topicId IN (:topicIds)
+            ORDER BY RANDOM()
             LIMIT :limit
         )
         """
     )
-    suspend fun recycleSeedQuizzes(limit: Int): Int
+    suspend fun recycleConsumedQuizzes(topicIds: List<String>, limit: Int): Int
 
     @Query("SELECT contentHash FROM quiz_items")
     suspend fun allHashes(): List<String>

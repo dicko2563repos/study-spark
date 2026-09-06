@@ -49,6 +49,23 @@ fun QuizScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Quiz", style = MaterialTheme.typography.headlineMedium)
+
+        statusMessage?.takeIf { it.isNotBlank() }?.let { message ->
+            val isWarning = message.contains("failed", ignoreCase = true) ||
+                message.contains("Could not", ignoreCase = true) ||
+                message.contains("No API", ignoreCase = true) ||
+                message.contains("recycled", ignoreCase = true)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isWarning) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+
         if (item == null) {
             if (generating) {
                 Row(
@@ -59,11 +76,10 @@ fun QuizScreen(
                     Text("Generating new quizzes…")
                 }
             } else {
-                Text(
-                    statusMessage
-                        ?: "No quizzes ready. Generate more with your Gemini key, or recycle seed questions."
-                )
-                Button(onClick = onGenerateMore, modifier = Modifier.fillMaxWidth()) {
+                if (statusMessage.isNullOrBlank()) {
+                    Text("No quizzes ready. Generate more with your Gemini key, or recycle prior questions.")
+                }
+                Button(onClick = onGenerateMore, enabled = !generating, modifier = Modifier.fillMaxWidth()) {
                     Text("Generate more quizzes")
                 }
             }
@@ -105,6 +121,13 @@ fun QuizScreen(
             Button(onClick = onSubmit, enabled = selected != null, modifier = Modifier.fillMaxWidth()) {
                 Text("Check answer")
             }
+            OutlinedButton(
+                onClick = onGenerateMore,
+                enabled = !generating,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (generating) "Generating…" else "Generate more quizzes")
+            }
         } else {
             Text(
                 when (outcome) {
@@ -122,9 +145,7 @@ fun QuizScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AssistChip(onClick = {}, label = { Text(item.format) })
             AssistChip(onClick = {}, label = { Text(if (item.verified) "verified" else "unverified") })
-        }
-        statusMessage?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium)
+            AssistChip(onClick = {}, label = { Text(item.verificationMethod) })
         }
     }
 }

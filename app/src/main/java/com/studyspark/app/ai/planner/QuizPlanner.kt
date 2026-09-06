@@ -30,7 +30,9 @@ class QuizPlanner(
             - format MUST be "knowledge" or "purpose" only (NOT output or syntax).
             - Do NOT include runnable code that must be executed to verify the answer.
             - codeSnippet must be null, or a tiny illustrative snippet that is NOT required to compute the answer.
-            - Topic: ${topic.topicId} (${topic.displayName}), learner level ~ ${"%.1f".format(topic.level)}.
+            - topicId MUST be exactly "${topic.topicId}".
+            - Topic focus: ${topic.displayName}, learner level ~ ${"%.1f".format(topic.level)}.
+            - Ask a different question than typical intro drills; vary the concept within the topic.
             - Keep it factual and appropriate for that level.
             Return JSON only, no markdown fences.
         """.trimIndent()
@@ -42,15 +44,16 @@ class QuizPlanner(
                     ChatMessage("user", prompt)
                 ),
                 jsonMode = true,
-                temperature = 0.3
+                temperature = 0.55
             )
         )
         val draft = json.decodeFromString<GeneratedQuizDraft>(extractJsonObject(response.text))
         // Normalize phone-safe drafts even if the model slips
         val safe = draft.copy(
+            topicId = topic.topicId,
             format = if (draft.format in setOf("knowledge", "purpose")) draft.format else "knowledge",
             runnableLanguage = null,
-            codeSnippet = draft.codeSnippet?.takeIf { draft.format == "purpose" && it.length < 120 }
+            codeSnippet = draft.codeSnippet?.takeIf { it.length < 120 }
         )
         val result = verifier.validateStructure(safe)
         return safe to result

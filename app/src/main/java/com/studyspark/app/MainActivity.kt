@@ -35,6 +35,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.studyspark.app.data.entity.QuizItemEntity
+import com.studyspark.app.data.repository.StudyRepository
 import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.notify.QuizScheduler
 import com.studyspark.app.ui.agent.AgentScreen
@@ -89,10 +90,15 @@ class MainActivity : ComponentActivity() {
                         quizGenerating = true
                         quizStatus = "Generating quizzes…"
                         try {
-                            quizStatus = repo.ensureQuizSupply(minReady = 3)
+                            quizStatus = repo.ensureQuizSupply()
                             next = repo.nextQuiz()
                         } finally {
                             quizGenerating = false
+                        }
+                    } else if (topUpIfEmpty && ready < StudyRepository.DEFAULT_READY_TARGET) {
+                        // Refill in the background while showing the next available item
+                        scope.launch {
+                            quizStatus = repo.ensureQuizSupply()
                         }
                     }
                     quizItem = next
@@ -101,9 +107,6 @@ class MainActivity : ComponentActivity() {
                     revealed = false
                     quizOutcome = null
                     quizStartedAt = System.currentTimeMillis()
-                    if (next != null && quizStatus?.startsWith("Generating") == true) {
-                        quizStatus = null
-                    }
                 }
 
                 LaunchedEffect(Unit) {
@@ -176,7 +179,7 @@ class MainActivity : ComponentActivity() {
                                         quizOutcome = repo.answerQuiz(item, choice, latency)
                                         revealed = true
                                         nudge = repo.nextStudyNudge()
-                                        repo.ensureQuizSupply(minReady = 3)
+                                        quizStatus = repo.ensureQuizSupply()
                                     }
                                 },
                                 onDontKnow = {
@@ -191,12 +194,19 @@ class MainActivity : ComponentActivity() {
                                         )
                                         revealed = true
                                         nudge = repo.nextStudyNudge()
-                                        repo.ensureQuizSupply(minReady = 3)
+                                        quizStatus = repo.ensureQuizSupply()
                                     }
                                 },
                                 onGenerateMore = {
                                     scope.launch {
-                                        loadNextQuiz(topUpIfEmpty = true)
+                                        quizGenerating = true
+                                        quizStatus = "Generating quizzes…"
+                                        try {
+                                            quizStatus = repo.ensureQuizSupply()
+                                            loadNextQuiz(topUpIfEmpty = false)
+                                        } finally {
+                                            quizGenerating = false
+                                        }
                                     }
                                 },
                                 onNext = {
