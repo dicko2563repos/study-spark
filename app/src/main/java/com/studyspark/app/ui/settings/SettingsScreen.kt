@@ -54,9 +54,13 @@ fun SettingsScreen(
         OutlinedTextField(
             value = settings.groqApiKey,
             onValueChange = { onSettingsChange(settings.copy(groqApiKey = it.trim())) },
-            label = { Text("Groq API key (failover)") },
+            label = { Text("Groq API key (failover if Gemini hits 429)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
+        )
+        Text(
+            "Tip: free Gemini tiers rate-limit quickly when generating many quizzes. Groq is used automatically as backup when both keys are set.",
+            style = MaterialTheme.typography.bodyMedium
         )
         OutlinedTextField(
             value = settings.verifyServiceUrl,

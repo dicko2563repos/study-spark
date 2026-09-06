@@ -18,6 +18,7 @@ import com.studyspark.app.data.entity.QuizAttemptEntity
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.data.entity.TopicSkillEntity
 import com.studyspark.app.data.entity.UserProfileEntity
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -156,8 +157,8 @@ class StudyRepository(
 
     /**
      * Generate phone-safe knowledge quizzes until [minReady] are available.
-     * Prefers new AI items; recycles a random sample of consumed quizzes only as fallback.
-     * Returns a short status string for the UI.
+     * Prefers a small batch of new AI items (to stay under free-tier rate limits),
+     * then recycles a random sample of consumed quizzes to fill the rest.
      */
     suspend fun ensureQuizSupply(minReady: Int = DEFAULT_READY_TARGET): String {
         val topics = db.topicSkillDao().enabled()
@@ -171,11 +172,19 @@ class StudyRepository(
         val planner = plannerProvider()
         var added = 0
         var lastError: String? = null
+        var rateLimited = false
 
         if (planner != null) {
             var attempts = 0
-            val maxAttempts = needed * 4
-            while (db.quizItemDao().readyCount() < minReady && attempts < maxAttempts) {
+            // Cap AI calls per top-up so free-tier Gemini isn't burst-exhausted
+            val aiBudget = min(needed, MAX_AI_PER_TOPUP)
+            val maxAttempts = aiBudget * 2
+            while (
+                added < aiBudget &&
+                db.quizItemDao().readyCount() < minReady &&
+                attempts < maxAttempts &&
+                !rateLimited
+            ) {
                 attempts++
                 val topic = topics[attempts % topics.size]
                 try {
@@ -186,8 +195,12 @@ class StudyRepository(
                             quizCache.putVerified(
                                 listOf(planner.toEntity(draft, verified = true, method = "light"))
                             )
-                            if (db.quizItemDao().readyCount() > before) added++
-                            else lastError = "Generated quiz was a duplicate"
+                            if (db.quizItemDao().readyCount() > before) {
+                                added++
+                                if (added < aiBudget) delay(450)
+                            } else {
+                                lastError = "Generated quiz was a duplicate"
+                            }
                         }
                         is VerificationResult.NeedsSandbox -> {
                             lastError = "Skipped code quiz (needs PC verifier)"
@@ -198,7 +211,11 @@ class StudyRepository(
                     }
                 } catch (e: Exception) {
                     lastError = e.message ?: e::class.java.simpleName
-                    // Keep trying a couple more times on transient errors
+                    if (isRateLimitError(lastError)) {
+                        rateLimited = true
+                        break
+                    }
+                    // One soft retry for other transient errors, then stop AI and recycle
                     if (attempts >= 2) break
                 }
             }
@@ -210,7 +227,6 @@ class StudyRepository(
         var recycled = 0
         if (ready < minReady) {
             val stillNeeded = (minReady - ready).coerceAtLeast(1)
-            // Prefer a wider rotate than the shortfall so the bank does not stay tiny
             val recycleLimit = max(stillNeeded, min(minReady, 8))
             recycled = db.quizItemDao().recycleConsumedQuizzes(topicIds, recycleLimit)
             ready = db.quizItemDao().readyCount()
@@ -221,8 +237,14 @@ class StudyRepository(
             recycled = recycled,
             ready = ready,
             hadPlanner = planner != null,
+            rateLimited = rateLimited,
             lastError = lastError
         )
+    }
+
+    private fun isRateLimitError(message: String?): Boolean {
+        val msg = message.orEmpty().lowercase()
+        return "429" in msg || "rate" in msg || "resource_exhausted" in msg || "quota" in msg
     }
 
     private fun buildSupplyStatus(
@@ -230,17 +252,23 @@ class StudyRepository(
         recycled: Int,
         ready: Int,
         hadPlanner: Boolean,
+        rateLimited: Boolean,
         lastError: String?
     ): String {
         val parts = mutableListOf<String>()
         if (added > 0) parts += "Added $added new AI quiz${if (added == 1) "" else "zes"}"
+        if (rateLimited) {
+            parts += "Gemini rate-limited (429) — add a free Groq key in Settings for failover, or wait a bit"
+        }
         if (recycled > 0) {
-            parts += if (hadPlanner && added == 0) {
-                "AI top-up failed (${lastError ?: "unknown"}) — recycled $recycled prior quiz${if (recycled == 1) "" else "zes"}"
-            } else if (!hadPlanner) {
-                "Recycled $recycled quiz${if (recycled == 1) "" else "zes"} (add a Gemini key for new AI questions)"
-            } else {
-                "Recycled $recycled prior quiz${if (recycled == 1) "" else "zes"} to fill the bank"
+            parts += when {
+                rateLimited -> "Recycled $recycled prior quiz${if (recycled == 1) "" else "zes"} so you can keep studying"
+                hadPlanner && added == 0 ->
+                    "AI top-up failed (${lastError ?: "unknown"}) — recycled $recycled prior quiz${if (recycled == 1) "" else "zes"}"
+                !hadPlanner ->
+                    "Recycled $recycled quiz${if (recycled == 1) "" else "zes"} (add a Gemini key for new AI questions)"
+                else ->
+                    "Recycled $recycled prior quiz${if (recycled == 1) "" else "zes"} to fill the bank"
             }
         }
         if (parts.isEmpty()) {
@@ -307,5 +335,7 @@ class StudyRepository(
 
     companion object {
         const val DEFAULT_READY_TARGET = 8
+        /** Max new AI quizzes per top-up call (avoids free-tier 429 bursts). */
+        const val MAX_AI_PER_TOPUP = 3
     }
 }

@@ -54,14 +54,16 @@ fun QuizScreen(
             val isWarning = message.contains("failed", ignoreCase = true) ||
                 message.contains("Could not", ignoreCase = true) ||
                 message.contains("No API", ignoreCase = true) ||
-                message.contains("recycled", ignoreCase = true)
+                message.contains("rate-limited", ignoreCase = true) ||
+                message.contains("429")
+            val isInfo = message.contains("recycled", ignoreCase = true) && !isWarning
             Text(
                 message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (isWarning) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                color = when {
+                    isWarning -> MaterialTheme.colorScheme.error
+                    isInfo -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
         }
