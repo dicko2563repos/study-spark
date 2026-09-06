@@ -9,8 +9,10 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -23,11 +25,18 @@ import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 
 object QuizScheduler {
-    private const val WORK_NAME = "study_spark_quiz_nudge"
+    private const val NUDGE_WORK = "study_spark_quiz_nudge"
+    private const val PREFETCH_WORK = "study_spark_quiz_prefetch"
+    private const val PREFETCH_HOURS = 1L
 
     fun ensureScheduled(context: Context, settings: AppSettings) {
+        ensureNudgeScheduled(context, settings)
+        ensurePrefetchScheduled(context)
+    }
+
+    fun ensureNudgeScheduled(context: Context, settings: AppSettings) {
         if (!settings.notificationsEnabled) {
-            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(NUDGE_WORK)
             return
         }
         val minutes = settings.quizIntervalMinutes.coerceIn(15, 24 * 60)
@@ -36,10 +45,44 @@ object QuizScheduler {
             TimeUnit.MINUTES
         ).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            WORK_NAME,
+            NUDGE_WORK,
             ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
+    }
+
+    /** Hourly drip-fill of the quiz bank while the app may be closed. */
+    fun ensurePrefetchScheduled(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = PeriodicWorkRequestBuilder<QuizPrefetchWorker>(
+            PREFETCH_HOURS,
+            TimeUnit.HOURS
+        )
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PREFETCH_WORK,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+}
+
+class QuizPrefetchWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        return try {
+            val app = applicationContext as StudySparkApp
+            app.container.studyRepository.prefetchQuizBankInBackground()
+            Result.success()
+        } catch (_: Exception) {
+            // Next hourly window will try again; avoid tight retry loops on 429.
+            Result.success()
+        }
     }
 }
 
@@ -52,6 +95,9 @@ class QuizNudgeWorker(
         val settings = app.container.settingsRepository.current()
         if (!settings.notificationsEnabled) return Result.success()
         if (inQuietHours(settings)) return Result.success()
+
+        // Opportunistic top-up before reminding the user a quiz is ready
+        runCatching { app.container.studyRepository.prefetchQuizBankInBackground() }
 
         val nudge = app.container.studyRepository.nextStudyNudge()
         val text = nudge ?: "Got 60 seconds? A short quiz is ready."

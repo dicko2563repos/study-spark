@@ -156,11 +156,33 @@ class StudyRepository(
     }
 
     /**
+     * Background-friendly drip fill: add a few new AI quizzes when below [PREFETCH_TARGET].
+     * Skips recycle unless the bank is empty (recycle is for interactive play, not prefetch).
+     */
+    suspend fun prefetchQuizBankInBackground(): String {
+        val ready = db.quizItemDao().readyCount()
+        if (ready >= PREFETCH_TARGET) {
+            return "Prefetch skipped — bank already at $ready (target $PREFETCH_TARGET)."
+        }
+        return ensureQuizSupply(
+            minReady = min(ready + MAX_AI_BACKGROUND, PREFETCH_TARGET),
+            maxAi = MAX_AI_BACKGROUND,
+            allowRecycle = ready == 0,
+            interCallDelayMs = 800L
+        )
+    }
+
+    /**
      * Generate phone-safe knowledge quizzes until [minReady] are available.
      * Prefers a small batch of new AI items (to stay under free-tier rate limits),
-     * then recycles a random sample of consumed quizzes to fill the rest.
+     * then optionally recycles consumed quizzes to fill the rest.
      */
-    suspend fun ensureQuizSupply(minReady: Int = DEFAULT_READY_TARGET): String {
+    suspend fun ensureQuizSupply(
+        minReady: Int = DEFAULT_READY_TARGET,
+        maxAi: Int = MAX_AI_PER_TOPUP,
+        allowRecycle: Boolean = true,
+        interCallDelayMs: Long = 450L
+    ): String {
         val topics = db.topicSkillDao().enabled()
         if (topics.isEmpty()) return "Enable at least one topic in Settings."
         val topicIds = topics.map { it.topicId }
@@ -176,8 +198,7 @@ class StudyRepository(
 
         if (planner != null) {
             var attempts = 0
-            // Cap AI calls per top-up so free-tier Gemini isn't burst-exhausted
-            val aiBudget = min(needed, MAX_AI_PER_TOPUP)
+            val aiBudget = min(needed, maxAi.coerceAtLeast(1))
             val maxAttempts = aiBudget * 2
             while (
                 added < aiBudget &&
@@ -197,7 +218,7 @@ class StudyRepository(
                             )
                             if (db.quizItemDao().readyCount() > before) {
                                 added++
-                                if (added < aiBudget) delay(450)
+                                if (added < aiBudget) delay(interCallDelayMs)
                             } else {
                                 lastError = "Generated quiz was a duplicate"
                             }
@@ -215,7 +236,6 @@ class StudyRepository(
                         rateLimited = true
                         break
                     }
-                    // One soft retry for other transient errors, then stop AI and recycle
                     if (attempts >= 2) break
                 }
             }
@@ -225,9 +245,9 @@ class StudyRepository(
 
         var ready = db.quizItemDao().readyCount()
         var recycled = 0
-        if (ready < minReady) {
+        if (allowRecycle && ready < minReady) {
             val stillNeeded = (minReady - ready).coerceAtLeast(1)
-            val recycleLimit = max(stillNeeded, min(minReady, 8))
+            val recycleLimit = max(stillNeeded, min(minReady, 12))
             recycled = db.quizItemDao().recycleConsumedQuizzes(topicIds, recycleLimit)
             ready = db.quizItemDao().readyCount()
         }
@@ -334,8 +354,15 @@ class StudyRepository(
     }
 
     companion object {
-        const val DEFAULT_READY_TARGET = 8
-        /** Max new AI quizzes per top-up call (avoids free-tier 429 bursts). */
+        /** Interactive session target — keep at least this many ready when possible. */
+        const val DEFAULT_READY_TARGET = 20
+        /** Start background-style top-up in the UI when ready falls below this. */
+        const val LOW_WATER_MARK = 10
+        /** Long-term bank size the hourly prefetch worker aims for. */
+        const val PREFETCH_TARGET = 40
+        /** Max new AI quizzes per foreground top-up (avoids free-tier 429 bursts). */
         const val MAX_AI_PER_TOPUP = 3
+        /** Slightly larger drip when the app is closed / WorkManager runs. */
+        const val MAX_AI_BACKGROUND = 5
     }
 }

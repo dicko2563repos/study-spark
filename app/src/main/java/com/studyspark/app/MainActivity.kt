@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
                         } finally {
                             quizGenerating = false
                         }
-                    } else if (topUpIfEmpty && ready < StudyRepository.DEFAULT_READY_TARGET) {
+                    } else if (topUpIfEmpty && ready < StudyRepository.LOW_WATER_MARK) {
                         // Refill in the background while showing the next available item
                         scope.launch {
                             quizStatus = repo.ensureQuizSupply()

@@ -59,7 +59,7 @@ fun SettingsScreen(
             singleLine = true
         )
         Text(
-            "Tip: free Gemini tiers rate-limit quickly when generating many quizzes. Groq is used automatically as backup when both keys are set.",
+            "Tip: free Gemini tiers rate-limit quickly when generating many quizzes. Groq is used automatically as backup when both keys are set. The app also refills the quiz bank about once an hour in the background when you have network.",
             style = MaterialTheme.typography.bodyMedium
         )
         OutlinedTextField(

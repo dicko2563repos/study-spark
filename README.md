@@ -7,14 +7,14 @@ Personal Android study companion: short adaptive quizzes, skill tracking, course
 This is a **debug** build for personal use — not from the Play Store.
 
 1. On your phone, allow installing apps from unknown sources / your browser/file manager.
-2. Open: https://github.com/dicko2563repos/study-spark/blob/main/dist/StudySpark-0.2.5-debug.apk
+2. Open: https://github.com/dicko2563repos/study-spark/blob/main/dist/StudySpark-0.2.6-debug.apk
 3. Click **Download raw file**.
 4. Open the file and install.
 
 Or with a USB cable and `adb`:
 
 ```bash
-adb install -r StudySpark-0.2.5-debug.apk
+adb install -r StudySpark-0.2.6-debug.apk
 ```
 
 ## What's in this first build
@@ -48,7 +48,7 @@ A portable JDK 17 may already exist under `tools/jdk-17*` (gitignored). Android 
 2. Optional failover: [Groq Console](https://console.groq.com/)  
 3. Paste keys in **Settings** (stored with EncryptedSharedPreferences)
 
-Without keys, quizzes still work from the seed bank (and recycle when empty); the agent runs in offline mode and still saves preferences/memory locally. With a Gemini key, the quiz screen auto-refills phone-safe knowledge questions when the bank runs low.
+Without keys, quizzes still work from the seed bank (and recycle when empty); the agent runs in offline mode and still saves preferences/memory locally. With a Gemini key, the quiz screen auto-refills phone-safe knowledge questions when the bank runs low, and a background worker drip-fills toward a larger bank (~40) about once an hour when the device is online.
 
 ## Memory files
 
