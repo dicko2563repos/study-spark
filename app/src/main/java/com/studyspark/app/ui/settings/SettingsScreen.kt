@@ -65,7 +65,7 @@ fun SettingsScreen(
             singleLine = true
         )
         Text(
-            "Tip: free Gemini tiers rate-limit quickly. With a Groq key set, the app failovers after a Gemini 429 and then keeps using Groq for that session. The quiz bank also refills about once an hour when online.",
+            "Tip: free Gemini tiers rate-limit quickly. With a Groq key set, after a Gemini 429 the app uses Groq (openai/gpt-oss-20b) for the rest of that session. The quiz bank also refills about once an hour when online.",
             style = MaterialTheme.typography.bodyMedium
         )
         Text("Quiz bank", style = MaterialTheme.typography.titleLarge)

@@ -151,7 +151,7 @@ class GeminiClient(
 class GroqClient(
     private val apiKeyProvider: () -> String?,
     private val http: OkHttpClient = GeminiClient.defaultClient(),
-    private val model: String = "llama-3.3-70b-versatile"
+    private val model: String = "openai/gpt-oss-20b"
 ) : LlmClient {
     override val provider: LlmProvider = LlmProvider.GROQ
     private val json = Json { ignoreUnknownKeys = true }
