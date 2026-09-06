@@ -73,6 +73,8 @@ data class QuizAttemptEntity(
     val topicId: String,
     val selectedIndex: Int,
     val correct: Boolean,
+    /** correct | incorrect | unknown */
+    val outcome: String = "incorrect",
     val latencyMs: Long,
     val answeredAt: Long = System.currentTimeMillis()
 )

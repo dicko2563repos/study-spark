@@ -35,6 +35,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.studyspark.app.data.entity.QuizItemEntity
+import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.notify.QuizScheduler
 import com.studyspark.app.ui.agent.AgentScreen
 import com.studyspark.app.ui.courses.CoursesScreen
@@ -76,7 +77,7 @@ class MainActivity : ComponentActivity() {
                 var choices by remember { mutableStateOf<List<String>>(emptyList()) }
                 var selected by remember { mutableStateOf<Int?>(null) }
                 var revealed by remember { mutableStateOf(false) }
-                var wasCorrect by remember { mutableStateOf<Boolean?>(null) }
+                var quizOutcome by remember { mutableStateOf<QuizAnswerOutcome?>(null) }
                 var quizStartedAt by remember { mutableStateOf(0L) }
                 var agentBusy by remember { mutableStateOf(false) }
 
@@ -135,7 +136,7 @@ class MainActivity : ComponentActivity() {
                                     choices = next?.let { repo.parseChoices(it) } ?: emptyList()
                                     selected = null
                                     revealed = false
-                                    wasCorrect = null
+                                    quizOutcome = null
                                     quizStartedAt = System.currentTimeMillis()
                                 }
                             }
@@ -144,14 +145,28 @@ class MainActivity : ComponentActivity() {
                                 choices = choices,
                                 selected = selected,
                                 revealed = revealed,
-                                wasCorrect = wasCorrect,
+                                outcome = quizOutcome,
                                 onSelect = { selected = it },
                                 onSubmit = {
                                     val item = quizItem ?: return@QuizScreen
                                     val choice = selected ?: return@QuizScreen
                                     scope.launch {
                                         val latency = System.currentTimeMillis() - quizStartedAt
-                                        wasCorrect = repo.answerQuiz(item, choice, latency)
+                                        quizOutcome = repo.answerQuiz(item, choice, latency)
+                                        revealed = true
+                                        nudge = repo.nextStudyNudge()
+                                    }
+                                },
+                                onDontKnow = {
+                                    val item = quizItem ?: return@QuizScreen
+                                    scope.launch {
+                                        val latency = System.currentTimeMillis() - quizStartedAt
+                                        quizOutcome = repo.answerQuiz(
+                                            item = item,
+                                            selectedIndex = -1,
+                                            latencyMs = latency,
+                                            unknown = true
+                                        )
                                         revealed = true
                                         nudge = repo.nextStudyNudge()
                                     }
@@ -163,7 +178,7 @@ class MainActivity : ComponentActivity() {
                                         choices = next?.let { repo.parseChoices(it) } ?: emptyList()
                                         selected = null
                                         revealed = false
-                                        wasCorrect = null
+                                        quizOutcome = null
                                         quizStartedAt = System.currentTimeMillis()
                                     }
                                 },

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.studyspark.app.data.entity.QuizItemEntity
+import com.studyspark.app.domain.QuizAnswerOutcome
 
 @Composable
 fun QuizScreen(
@@ -28,9 +29,10 @@ fun QuizScreen(
     choices: List<String>,
     selected: Int?,
     revealed: Boolean,
-    wasCorrect: Boolean?,
+    outcome: QuizAnswerOutcome?,
     onSelect: (Int) -> Unit,
     onSubmit: () -> Unit,
+    onDontKnow: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -73,12 +75,22 @@ fun QuizScreen(
             }
         }
         if (!revealed) {
+            OutlinedButton(
+                onClick = onDontKnow,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("I don't know")
+            }
             Button(onClick = onSubmit, enabled = selected != null, modifier = Modifier.fillMaxWidth()) {
                 Text("Check answer")
             }
         } else {
             Text(
-                if (wasCorrect == true) "Correct — nice work." else "Not quite — here's the idea.",
+                when (outcome) {
+                    QuizAnswerOutcome.CORRECT -> "Correct — nice work."
+                    QuizAnswerOutcome.UNKNOWN -> "No worries — here's how this works."
+                    QuizAnswerOutcome.INCORRECT, null -> "Not quite — here's the idea."
+                },
                 style = MaterialTheme.typography.titleLarge
             )
             Text(item.explanation, style = MaterialTheme.typography.bodyLarge)

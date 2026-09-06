@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.studyspark.app.data.dao.AgentMemoryDao
 import com.studyspark.app.data.dao.AgentMessageDao
@@ -52,7 +53,7 @@ import kotlinx.coroutines.launch
         MistakeEntity::class,
         RateLimitLedgerEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class StudySparkDatabase : RoomDatabase() {
@@ -74,6 +75,17 @@ abstract class StudySparkDatabase : RoomDatabase() {
         @Volatile
         private var instance: StudySparkDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE quiz_attempts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'incorrect'"
+                )
+                db.execSQL(
+                    "UPDATE quiz_attempts SET outcome = 'correct' WHERE correct = 1"
+                )
+            }
+        }
+
         fun get(context: Context): StudySparkDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -81,6 +93,7 @@ abstract class StudySparkDatabase : RoomDatabase() {
                     StudySparkDatabase::class.java,
                     "study_spark.db"
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

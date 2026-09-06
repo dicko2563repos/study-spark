@@ -8,6 +8,7 @@ import com.studyspark.app.ai.llm.LlmRouter
 import com.studyspark.app.ai.memory.MemoryFileStore
 import com.studyspark.app.ai.planner.QuizPlanner
 import com.studyspark.app.ai.verify.VerificationResult
+import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.data.db.StudySparkDatabase
 import com.studyspark.app.data.entity.AgentMessageEntity
 import com.studyspark.app.data.entity.CourseEntity
@@ -52,32 +53,50 @@ class StudyRepository(
         return item
     }
 
-    suspend fun answerQuiz(item: QuizItemEntity, selectedIndex: Int, latencyMs: Long): Boolean {
-        val correct = selectedIndex == item.correctIndex
+    suspend fun answerQuiz(
+        item: QuizItemEntity,
+        selectedIndex: Int,
+        latencyMs: Long,
+        unknown: Boolean = false
+    ): QuizAnswerOutcome {
+        val outcome = when {
+            unknown -> QuizAnswerOutcome.UNKNOWN
+            selectedIndex == item.correctIndex -> QuizAnswerOutcome.CORRECT
+            else -> QuizAnswerOutcome.INCORRECT
+        }
         db.quizAttemptDao().insert(
             QuizAttemptEntity(
                 quizItemId = item.id,
                 topicId = item.topicId,
-                selectedIndex = selectedIndex,
-                correct = correct,
+                selectedIndex = if (unknown) -1 else selectedIndex,
+                correct = outcome == QuizAnswerOutcome.CORRECT,
+                outcome = when (outcome) {
+                    QuizAnswerOutcome.CORRECT -> "correct"
+                    QuizAnswerOutcome.INCORRECT -> "incorrect"
+                    QuizAnswerOutcome.UNKNOWN -> "unknown"
+                },
                 latencyMs = latencyMs
             )
         )
         db.quizItemDao().markConsumed(item.id)
-        updateSkill(item.topicId, correct)
-        if (!correct) {
-            db.mistakeDao().insert(
-                MistakeEntity(
-                    topicId = item.topicId,
-                    conceptId = null,
-                    quizItemId = item.id,
-                    note = item.prompt
+        when (outcome) {
+            QuizAnswerOutcome.CORRECT -> updateSkill(item.topicId, correct = true)
+            QuizAnswerOutcome.INCORRECT -> {
+                updateSkill(item.topicId, correct = false)
+                db.mistakeDao().insert(
+                    MistakeEntity(
+                        topicId = item.topicId,
+                        conceptId = null,
+                        quizItemId = item.id,
+                        note = item.prompt
+                    )
                 )
-            )
+            }
+            QuizAnswerOutcome.UNKNOWN -> Unit // no skill penalty, no mistake entry
         }
         bumpStreak()
         memory.exportAll()
-        return correct
+        return outcome
     }
 
     suspend fun setTopicEnabled(topicId: String, enabled: Boolean) {
