@@ -21,3 +21,4 @@ verify-service/.gradle/
 .gradle-local/
 
 
+.secrets/
