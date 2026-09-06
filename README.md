@@ -7,8 +7,8 @@ Personal Android study companion: short adaptive quizzes, skill tracking, course
 This is a **debug** build for personal use — not from the Play Store.
 
 1. On your phone, allow installing apps from unknown sources / your browser/file manager.
-2. Open the GitHub **Releases** page for this repo.
-3. Download `StudySpark-0.1.0-debug.apk`.
+2. Open: https://github.com/dicko2563repos/study-spark/blob/main/dist/StudySpark-0.1.0-debug.apk
+3. Click **Download raw file**.
 4. Open the file and install.
 
 Or with a USB cable and `adb`:
