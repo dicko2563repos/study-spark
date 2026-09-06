@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 class GeminiClient(
     private val apiKeyProvider: () -> String?,
     private val http: OkHttpClient = defaultClient(),
-    private val model: String = "gemini-2.5-flash"
+    private val model: String = "gemini-3.6-flash"
 ) : LlmClient {
     override val provider: LlmProvider = LlmProvider.GEMINI
     private val json = Json { ignoreUnknownKeys = true }
