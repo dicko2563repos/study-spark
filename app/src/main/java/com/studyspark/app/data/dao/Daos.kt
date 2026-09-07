@@ -71,6 +71,25 @@ interface QuizItemDao {
     )
     suspend fun nextAvailable(topicIds: List<String>): QuizItemEntity?
 
+    @Query(
+        """
+        SELECT * FROM quiz_items
+        WHERE consumed = 0 AND verified = 1 AND topicId IN (:topicIds)
+        """
+    )
+    suspend fun readyForTopics(topicIds: List<String>): List<QuizItemEntity>
+
+    @Query(
+        """
+        SELECT * FROM quiz_items
+        WHERE consumed = 1 AND verified = 1 AND topicId IN (:topicIds)
+        """
+    )
+    suspend fun consumedForTopics(topicIds: List<String>): List<QuizItemEntity>
+
+    @Query("UPDATE quiz_items SET consumed = 0 WHERE id IN (:ids)")
+    suspend fun markReady(ids: List<String>): Int
+
     @Query("SELECT * FROM quiz_items WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): QuizItemEntity?
 
@@ -120,6 +139,9 @@ interface QuizAttemptDao {
 
     @Query("SELECT * FROM quiz_attempts ORDER BY answeredAt DESC LIMIT :limit")
     fun observeRecent(limit: Int = 50): Flow<List<QuizAttemptEntity>>
+
+    @Query("SELECT * FROM quiz_attempts ORDER BY answeredAt DESC LIMIT :limit")
+    suspend fun recent(limit: Int = 80): List<QuizAttemptEntity>
 
     @Query("SELECT COUNT(*) FROM quiz_attempts WHERE correct = 1")
     fun observeCorrectCount(): Flow<Int>

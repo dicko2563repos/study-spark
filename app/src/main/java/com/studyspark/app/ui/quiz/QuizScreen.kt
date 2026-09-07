@@ -34,6 +34,7 @@ fun QuizScreen(
     outcome: QuizAnswerOutcome?,
     generating: Boolean,
     statusMessage: String?,
+    pickReason: String?,
     onSelect: (Int) -> Unit,
     onSubmit: () -> Unit,
     onDontKnow: () -> Unit,
@@ -90,6 +91,9 @@ fun QuizScreen(
         }
 
         AssistChip(onClick = {}, label = { Text(item.topicId) })
+        pickReason?.takeIf { it.isNotBlank() }?.let {
+            AssistChip(onClick = {}, label = { Text(it) })
+        }
         item.whyThisQuestion?.let {
             Text("Why this question: $it", style = MaterialTheme.typography.bodyMedium)
         }

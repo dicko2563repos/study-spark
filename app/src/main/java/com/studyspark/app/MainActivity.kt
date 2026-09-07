@@ -83,24 +83,26 @@ class MainActivity : ComponentActivity() {
                 var agentBusy by remember { mutableStateOf(false) }
                 var quizGenerating by remember { mutableStateOf(false) }
                 var quizStatus by remember { mutableStateOf<String?>(null) }
+                var quizPickReason by remember { mutableStateOf<String?>(null) }
 
                 suspend fun loadNextQuiz(topUpIfEmpty: Boolean = true) {
-                    var next = repo.nextQuiz()
-                    if (next == null && topUpIfEmpty) {
+                    var pick = repo.nextQuizPick()
+                    if (pick == null && topUpIfEmpty) {
                         quizGenerating = true
                         quizStatus = "Generating quizzes…"
                         try {
                             quizStatus = repo.ensureQuizSupply()
-                            next = repo.nextQuiz()
+                            pick = repo.nextQuizPick()
                         } finally {
                             quizGenerating = false
                         }
                     } else if (topUpIfEmpty && ready < StudyRepository.LOW_WATER_MARK) {
-                        // Refill in the background while showing the next available item
                         scope.launch {
                             quizStatus = repo.ensureQuizSupply()
                         }
                     }
+                    val next = pick?.item
+                    quizPickReason = pick?.reason
                     quizItem = next
                     choices = next?.let { repo.parseChoices(it) } ?: emptyList()
                     selected = null
@@ -170,6 +172,7 @@ class MainActivity : ComponentActivity() {
                                 outcome = quizOutcome,
                                 generating = quizGenerating,
                                 statusMessage = quizStatus,
+                                pickReason = quizPickReason,
                                 onSelect = { selected = it },
                                 onSubmit = {
                                     val item = quizItem ?: return@QuizScreen
@@ -263,6 +266,7 @@ class MainActivity : ComponentActivity() {
                                     scope.launch {
                                         quizStatus = repo.clearAllQuizzes()
                                         quizItem = null
+                                        quizPickReason = null
                                         choices = emptyList()
                                         selected = null
                                         revealed = false

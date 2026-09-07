@@ -9,6 +9,7 @@ import com.studyspark.app.ai.memory.MemoryFileStore
 import com.studyspark.app.ai.planner.QuizPlanner
 import com.studyspark.app.ai.verify.VerificationResult
 import com.studyspark.app.domain.QuizAnswerOutcome
+import com.studyspark.app.domain.QuizPick
 import com.studyspark.app.data.db.StudySparkDatabase
 import com.studyspark.app.data.entity.AgentMessageEntity
 import com.studyspark.app.data.entity.CourseEntity
@@ -48,12 +49,43 @@ class StudyRepository(
     fun observePreferences() = db.quizPreferenceDao().observeActive()
     fun observeRecentAttempts() = db.quizAttemptDao().observeRecent()
 
-    suspend fun nextQuiz(): QuizItemEntity? {
+    suspend fun nextQuiz(): QuizItemEntity? = nextQuizPick()?.item
+
+    suspend fun nextQuizPick(): QuizPick? {
         val enabled = db.topicSkillDao().enabled().map { it.topicId }
         if (enabled.isEmpty()) return null
-        val item = quizCache.next(enabled)
-        if (item != null) rateLimitTracker.recordCacheHit()
-        return item
+        val candidates = db.quizItemDao().readyForTopics(enabled)
+        if (candidates.isEmpty()) return null
+        val recent = db.quizAttemptDao().recent(80)
+        val lastByItem = recent.distinctBy { it.quizItemId }.associateBy { it.quizItemId }
+        val eligible = candidates.filter { item ->
+            val last = lastByItem[item.id]
+            last == null || quizzesSince(item.id, recent) >= cooldownGap(last.outcome)
+        }
+        val pool = eligible.ifEmpty { candidates }
+        val unseen = pool.filter { it.id !in lastByItem }
+        val item = (if (unseen.isNotEmpty()) unseen else pool).random()
+        rateLimitTracker.recordCacheHit()
+        val last = lastByItem[item.id]
+        val reason = when {
+            last == null -> "New question"
+            last.outcome == "incorrect" -> "Reviewing a miss"
+            last.outcome == "unknown" -> "Reviewing something you skipped"
+            else -> "Practice"
+        }
+        return QuizPick(item, reason)
+    }
+
+    private fun quizzesSince(itemId: String, recentNewestFirst: List<QuizAttemptEntity>): Int {
+        val index = recentNewestFirst.indexOfFirst { it.quizItemId == itemId }
+        return if (index < 0) Int.MAX_VALUE else index
+    }
+
+    private fun cooldownGap(outcome: String): Int = when (outcome) {
+        "correct" -> CORRECT_COOLDOWN_QUIZZES
+        "incorrect" -> INCORRECT_COOLDOWN_QUIZZES
+        "unknown" -> UNKNOWN_COOLDOWN_QUIZZES
+        else -> CORRECT_COOLDOWN_QUIZZES
     }
 
     suspend fun answerQuiz(
@@ -248,10 +280,20 @@ class StudyRepository(
 
         var ready = db.quizItemDao().readyCount()
         var recycled = 0
-        if (allowRecycle && ready < minReady) {
+        // Recycle only as a last resort when no new AI landed — keep the ready bank fresh.
+        if (allowRecycle && added == 0 && ready < minReady) {
             val stillNeeded = (minReady - ready).coerceAtLeast(1)
             val recycleLimit = max(stillNeeded, min(minReady, 12))
-            recycled = db.quizItemDao().recycleConsumedQuizzes(topicIds, recycleLimit)
+            val recent = db.quizAttemptDao().recent(80)
+            val lastByItem = recent.distinctBy { it.quizItemId }.associateBy { it.quizItemId }
+            val cooled = db.quizItemDao().consumedForTopics(topicIds).filter { item ->
+                val last = lastByItem[item.id]
+                last == null || quizzesSince(item.id, recent) >= cooldownGap(last.outcome)
+            }
+            val toRevive = cooled.shuffled().take(recycleLimit).map { it.id }
+            if (toRevive.isNotEmpty()) {
+                recycled = db.quizItemDao().markReady(toRevive)
+            }
             ready = db.quizItemDao().readyCount()
         }
 
@@ -393,5 +435,9 @@ class StudyRepository(
         const val MAX_AI_PER_TOPUP = 3
         /** Slightly larger drip when the app is closed / WorkManager runs. */
         const val MAX_AI_BACKGROUND = 5
+        /** Don't re-serve a correctly answered item until this many other answers. */
+        const val CORRECT_COOLDOWN_QUIZZES = 12
+        const val INCORRECT_COOLDOWN_QUIZZES = 4
+        const val UNKNOWN_COOLDOWN_QUIZZES = 3
     }
 }

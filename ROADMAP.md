@@ -18,16 +18,16 @@ The study agent, memory files, and courses support these values; they are not th
 
 ## Current foundation (as of ~0.2.6)
 
-Already shipping:
+Already shipping (as of ~0.2.9):
 
 - Seed + AI knowledge quizzes, recycle, rate-limit-aware top-up, hourly prefetch toward ~40 ready
+- Selection prefers unseen items; cooldown after answers (longer after correct, shorter after miss/skip); recycle only when no new AI landed
 - Per-topic skill level / accuracy; attempt outcomes (correct / incorrect / unknown); mistakes; agent preferences
 - Room entities that anticipate more intelligence but are lightly used today: `concept_mastery`, concept tags on quiz items
 
 Gaps vs the north star:
 
-- Selection is mostly random among ready items; recycle ignores performance
-- No cooldown / mastery gate; incorrect and “I don’t know” are not scheduled for smart retry
+- Cooldown is a simple “N quizzes later” rule, not full spaced repetition
 - Topics are a fixed coding list with enable toggles only
 - No “Test my knowledge” mode; no learner-facing difficulty or concept scope controls
 - `concept_mastery` is not wired into generation or next-quiz picking
