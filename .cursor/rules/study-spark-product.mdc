@@ -16,3 +16,5 @@ Read [docs/CURRENT.md](docs/CURRENT.md) at the start of substantive work, then [
 **Phases:** A (selection cooldown — shipping ~0.2.9) → B (learner controls) → B2 (in-quiz coach line) → C (edge + Test my knowledge) → D (open topics). Do not skip D’s design bar.
 
 When shipping a version, update `docs/CURRENT.md` (version, next step, pitfalls) in the same change.
+
+**Next phase:** B2 in-quiz coach line (after 0.3.0 Phase B slice).

@@ -259,6 +259,12 @@ class MainActivity : ComponentActivity() {
                                 onToggleTopic = { id, enabled ->
                                     scope.launch { repo.setTopicEnabled(id, enabled) }
                                 },
+                                onTopicDifficulty = { id, pref ->
+                                    scope.launch { repo.setTopicDifficulty(id, pref) }
+                                },
+                                onTopicScope = { id, notes ->
+                                    scope.launch { repo.setTopicScopeNotes(id, notes) }
+                                },
                                 onClearAnswered = {
                                     scope.launch { quizStatus = repo.clearAnsweredQuizzes() }
                                 },

@@ -31,7 +31,8 @@ class MemoryFileStore(
         buildString {
             appendLine("=== SYSTEM RULES ===")
             appendLine("Be accurate. Never invent quiz answers that were not verified.")
-            appendLine("Honor user quiz preferences. Be encouraging and concrete.")
+            appendLine("Honor user quiz preferences, per-topic difficulty (gentle/standard/stretch), and concept scope notes.")
+            appendLine("If the learner asks to make questions harder or easier, confirm that Settings difficulty was updated for enabled topics.")
             appendLine()
             appendSection("profile.md")
             appendSection("preferences.md")
@@ -73,7 +74,7 @@ class MemoryFileStore(
     private suspend fun exportSkills() {
         val skills = db.topicSkillDao().enabled()
         val body = skills.joinToString(",\n") { skill ->
-            """  {"topicId":"${skill.topicId}","name":"${skill.displayName}","level":${skill.level},"accuracy":${skill.accuracy},"attempts":${skill.attempts}}"""
+            """  {"topicId":"${skill.topicId}","name":"${skill.displayName}","level":${skill.level},"difficulty":"${skill.difficultyPref}","avoid":${jsonString(skill.scopeNotes)},"accuracy":${skill.accuracy},"attempts":${skill.attempts}}"""
         }
         write("skills.json", "[\n$body\n]\n")
     }

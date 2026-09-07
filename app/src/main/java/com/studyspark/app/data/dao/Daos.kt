@@ -122,6 +122,16 @@ interface QuizItemDao {
     )
     suspend fun recycleConsumedQuizzes(topicIds: List<String>, limit: Int): Int
 
+    @Query(
+        """
+        SELECT prompt FROM quiz_items
+        WHERE topicId = :topicId
+        ORDER BY createdAt DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun recentPrompts(topicId: String, limit: Int = 8): List<String>
+
     @Query("SELECT contentHash FROM quiz_items")
     suspend fun allHashes(): List<String>
 

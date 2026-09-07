@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
         MistakeEntity::class,
         RateLimitLedgerEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class StudySparkDatabase : RoomDatabase() {
@@ -86,6 +86,17 @@ abstract class StudySparkDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE topic_skills ADD COLUMN difficultyPref TEXT NOT NULL DEFAULT 'standard'"
+                )
+                db.execSQL(
+                    "ALTER TABLE topic_skills ADD COLUMN scopeNotes TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun get(context: Context): StudySparkDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -93,7 +104,7 @@ abstract class StudySparkDatabase : RoomDatabase() {
                     StudySparkDatabase::class.java,
                     "study_spark.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

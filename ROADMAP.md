@@ -16,7 +16,7 @@ When discussing features, concepts, or UX using coding examples (or any other si
 
 The study agent, memory files, and courses support these values; they are not the primary quiz intelligence loop.
 
-## Current foundation (as of ~0.2.9)
+## Current foundation (as of ~0.3.0)
 
 Already shipping (as of ~0.2.9):
 
@@ -28,9 +28,9 @@ Already shipping (as of ~0.2.9):
 Gaps vs the north star:
 
 - Cooldown is a simple “N quizzes later” rule, not full spaced repetition
-- Topics are a fixed coding list with enable toggles only
-- No “Test my knowledge” mode; no learner-facing difficulty or concept scope controls
-- `concept_mastery` is not wired into generation or next-quiz picking
+- Topics are still a fixed list (enable + difficulty + avoid notes); no user-defined topics yet
+- No “Test my knowledge” mode; concept include-lists / mastery UI not built
+- `concept_mastery` is not fully wired
 
 ## Phased roadmap
 

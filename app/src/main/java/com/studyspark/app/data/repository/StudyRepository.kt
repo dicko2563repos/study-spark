@@ -10,6 +10,7 @@ import com.studyspark.app.ai.planner.QuizPlanner
 import com.studyspark.app.ai.verify.VerificationResult
 import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.domain.QuizPick
+import com.studyspark.app.domain.TopicDifficulty
 import com.studyspark.app.data.db.StudySparkDatabase
 import com.studyspark.app.data.entity.AgentMessageEntity
 import com.studyspark.app.data.entity.CourseEntity
@@ -52,7 +53,8 @@ class StudyRepository(
     suspend fun nextQuiz(): QuizItemEntity? = nextQuizPick()?.item
 
     suspend fun nextQuizPick(): QuizPick? {
-        val enabled = db.topicSkillDao().enabled().map { it.topicId }
+        val enabledTopics = db.topicSkillDao().enabled()
+        val enabled = enabledTopics.map { it.topicId }
         if (enabled.isEmpty()) return null
         val candidates = db.quizItemDao().readyForTopics(enabled)
         if (candidates.isEmpty()) return null
@@ -62,7 +64,12 @@ class StudyRepository(
             val last = lastByItem[item.id]
             last == null || quizzesSince(item.id, recent) >= cooldownGap(last.outcome)
         }
-        val pool = eligible.ifEmpty { candidates }
+        val cooled = eligible.ifEmpty { candidates }
+        val scopeByTopic = enabledTopics.associate { it.topicId to it.scopeNotes }
+        val inScope = cooled.filter { item ->
+            !violatesScope(item, scopeByTopic[item.topicId].orEmpty())
+        }
+        val pool = inScope.ifEmpty { cooled }
         val unseen = pool.filter { it.id !in lastByItem }
         val item = (if (unseen.isNotEmpty()) unseen else pool).random()
         rateLimitTracker.recordCacheHit()
@@ -79,6 +86,13 @@ class StudyRepository(
     private fun quizzesSince(itemId: String, recentNewestFirst: List<QuizAttemptEntity>): Int {
         val index = recentNewestFirst.indexOfFirst { it.quizItemId == itemId }
         return if (index < 0) Int.MAX_VALUE else index
+    }
+
+    private fun violatesScope(item: QuizItemEntity, scopeNotes: String): Boolean {
+        val avoids = TopicDifficulty.avoidPhrases(scopeNotes)
+        if (avoids.isEmpty()) return false
+        val hay = (item.prompt + " " + item.conceptTagsJson).lowercase()
+        return avoids.any { it in hay }
     }
 
     private fun cooldownGap(outcome: String): Int = when (outcome) {
@@ -140,6 +154,18 @@ class StudyRepository(
         memory.exportAll()
     }
 
+    suspend fun setTopicDifficulty(topicId: String, pref: String) {
+        val topic = db.topicSkillDao().byTopic(topicId) ?: return
+        db.topicSkillDao().update(topic.copy(difficultyPref = TopicDifficulty.normalize(pref)))
+        memory.exportAll()
+    }
+
+    suspend fun setTopicScopeNotes(topicId: String, notes: String) {
+        val topic = db.topicSkillDao().byTopic(topicId) ?: return
+        db.topicSkillDao().update(topic.copy(scopeNotes = notes.take(280)))
+        memory.exportAll()
+    }
+
     suspend fun addCourse(title: String, firstModule: String?) {
         val id = db.courseDao().insert(CourseEntity(title = title))
         if (!firstModule.isNullOrBlank()) {
@@ -161,6 +187,7 @@ class StudyRepository(
     suspend fun sendAgentMessage(userText: String): String {
         db.agentMessageDao().insert(AgentMessageEntity(role = "user", content = userText))
         maybeCapturePreference(userText)
+        applyChatControls(userText)
 
         val router = routerProvider()
         val reply = if (router == null) {
@@ -243,7 +270,8 @@ class StudyRepository(
                 attempts++
                 val topic = topics[attempts % topics.size]
                 try {
-                    val (draft, result) = planner.generateDraft(topic)
+                    val recentPrompts = db.quizItemDao().recentPrompts(topic.topicId, 8)
+                    val (draft, result) = planner.generateDraft(topic, recentPrompts)
                     when (result) {
                         is VerificationResult.AcceptedLight -> {
                             val before = db.quizItemDao().readyCount()
@@ -410,10 +438,26 @@ class StudyRepository(
 
     private suspend fun maybeCapturePreference(userText: String) {
         val lowered = userText.lowercase()
-        val looksLikePref = listOf("prefer", "always", "don't", "do not", "more questions", "less", "include", "remember")
-            .any { it in lowered }
+        val looksLikePref = listOf(
+            "prefer", "always", "don't", "do not", "more questions", "less", "include", "remember",
+            "harder", "easier", "difficulty", "not yet", "avoid"
+        ).any { it in lowered }
         if (looksLikePref && userText.length in 8..280) {
             memory.rememberPreference(userText.trim())
+        }
+    }
+
+    private suspend fun applyChatControls(userText: String) {
+        val lowered = userText.lowercase()
+        val pref = when {
+            listOf("make it harder", "too easy", "more difficult", "stretch me", "increase difficulty")
+                .any { it in lowered } -> TopicDifficulty.STRETCH
+            listOf("make it easier", "too hard", "too difficult", "gentler", "simpler questions", "decrease difficulty")
+                .any { it in lowered } -> TopicDifficulty.GENTLE
+            else -> null
+        } ?: return
+        db.topicSkillDao().enabled().forEach { topic ->
+            db.topicSkillDao().update(topic.copy(difficultyPref = pref))
         }
     }
 

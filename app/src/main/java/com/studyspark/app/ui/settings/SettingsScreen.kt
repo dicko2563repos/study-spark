@@ -1,5 +1,6 @@
 package com.studyspark.app.ui.settings
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.studyspark.app.data.entity.TopicSkillEntity
 import com.studyspark.app.data.repository.AppSettings
 import com.studyspark.app.data.repository.InterruptStyle
+import com.studyspark.app.domain.TopicDifficulty
 
 @Composable
 fun SettingsScreen(
@@ -30,6 +32,8 @@ fun SettingsScreen(
     bankStatus: String?,
     onSettingsChange: (AppSettings) -> Unit,
     onToggleTopic: (String, Boolean) -> Unit,
+    onTopicDifficulty: (String, String) -> Unit,
+    onTopicScope: (String, String) -> Unit,
     onClearAnswered: () -> Unit,
     onClearAllQuizzes: () -> Unit,
     onRestoreSeeds: () -> Unit
@@ -43,10 +47,43 @@ fun SettingsScreen(
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Topics", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Difficulty applies to newly generated quizzes. Avoid-list skips matching ready items when alternatives exist. Ask the agent to make questions harder or easier to update enabled topics.",
+            style = MaterialTheme.typography.bodyMedium
+        )
         topics.forEach { topic ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(topic.displayName, modifier = Modifier.weight(1f))
-                Switch(checked = topic.enabled, onCheckedChange = { onToggleTopic(topic.topicId, it) })
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(topic.displayName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Switch(checked = topic.enabled, onCheckedChange = { onToggleTopic(topic.topicId, it) })
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    FilterChip(
+                        selected = TopicDifficulty.normalize(topic.difficultyPref) == TopicDifficulty.GENTLE,
+                        onClick = { onTopicDifficulty(topic.topicId, TopicDifficulty.GENTLE) },
+                        label = { Text("Gentle") }
+                    )
+                    FilterChip(
+                        selected = TopicDifficulty.normalize(topic.difficultyPref) == TopicDifficulty.STANDARD,
+                        onClick = { onTopicDifficulty(topic.topicId, TopicDifficulty.STANDARD) },
+                        label = { Text("Standard") }
+                    )
+                    FilterChip(
+                        selected = TopicDifficulty.normalize(topic.difficultyPref) == TopicDifficulty.STRETCH,
+                        onClick = { onTopicDifficulty(topic.topicId, TopicDifficulty.STRETCH) },
+                        label = { Text("Stretch") }
+                    )
+                }
+                OutlinedTextField(
+                    value = topic.scopeNotes,
+                    onValueChange = { onTopicScope(topic.topicId, it) },
+                    label = { Text("Avoid for now (comma-separated)") },
+                    placeholder = { Text("e.g. recursion, bitwise") },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
         Text("AI keys (stored encrypted on device)", style = MaterialTheme.typography.titleLarge)

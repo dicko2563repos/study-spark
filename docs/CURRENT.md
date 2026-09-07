@@ -4,15 +4,16 @@ Update this file whenever a version ships or the next phase changes. Agents shou
 
 ## Status
 
-- **Latest APK:** 0.2.9 (`dist/StudySpark-0.2.9-debug.apk`)
+- **Latest APK:** 0.3.0 (`dist/StudySpark-0.3.0-debug.apk`)
 - **Supply:** Gemini + Groq failover; hourly prefetch; Settings can clear/restore the quiz bank
-- **Selection (Phase A, thin):** prefer unseen; cooldown 12 / 4 / 3 quizzes after correct / miss / skip; recycle only if no new AI was added; pick-reason chip
-- **Not built:** learner difficulty/scope UI (Phase B); in-quiz coach line (B2); Test my knowledge (C); user-defined topics (D)
-- **Agent tab:** keyword-captures some preferences into markdown; cannot change difficulty; existing ready quizzes are unchanged by chat
+- **Selection (Phase A, thin):** prefer unseen; cooldown 12 / 4 / 3 after correct / miss / skip; recycle only if no new AI was added; pick-reason chip; skip ready items matching per-topic avoid-list when alternatives exist
+- **Learner controls (Phase B, first slice):** per-topic Gentle / Standard / Stretch; comma-separated avoid-list; planner honors both and recent prompts; Agent phrases like “make it harder/easier” update enabled topics
+- **Not built:** in-quiz coach line (B2); Test my knowledge (C); user-defined topics (D)
+- **Agent tab:** those difficulty phrases now write Settings; cannot invent concept chips yet
 
 ## Next product step
 
-**Phase B** — per-topic difficulty / complexity / concept include-exclude, honored by planner and filtering. Optionally a small planner pass to reduce semantic near-duplicate questions (generation quality, not selection).
+**Phase B2** — in-quiz coach line (not familiar / don’t ask again / explain), without turning Quiz into a chat thread.
 
 ## Pitfalls (do not relearn the hard way)
 
@@ -21,7 +22,8 @@ Update this file whenever a version ships or the next phase changes. Agents shou
 3. Status used to say “add a Groq key” even when one was set.
 4. Creating a new `LlmRouter` per call dropped session skip-Gemini; cache the router in `AppContainer`.
 5. Uninstall/reinstall is a first-launch path (empty DB, no keys). In-place updates are not.
-6. Semantic lookalikes can still appear; cooldown only keys off quiz item id.
+6. Exact prompt dupes are hashed without a timestamp; paraphrases can still look similar.
+7. Room v3 adds `difficultyPref` and `scopeNotes` on `topic_skills`.
 
 ## Key code
 
@@ -29,3 +31,4 @@ Update this file whenever a version ships or the next phase changes. Agents shou
 - Planner: `QuizPlanner` / `LlmRouter` / `GroqClient`
 - Prefetch: `QuizPrefetchWorker` in `QuizScheduler.kt`
 - Seeds: `SeedData`
+- Difficulty helpers: `TopicDifficulty`

@@ -28,7 +28,11 @@ data class TopicSkillEntity(
     val accuracy: Float = 0.5f,
     val attempts: Int = 0,
     val correct: Int = 0,
-    val lastPracticedAt: Long? = null
+    val lastPracticedAt: Long? = null,
+    /** gentle | standard | stretch */
+    val difficultyPref: String = "standard",
+    /** Comma-separated concepts to avoid for now. */
+    val scopeNotes: String = ""
 )
 
 @Entity(
