@@ -60,4 +60,4 @@ Room remains source of truth; these files are packed into agent/planner context.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for north-star values and phased plans (selection memory, learner controls, in-quiz coach line, edge-of-knowledge / Test my knowledge, open topics, platform work).
+See [ROADMAP.md](ROADMAP.md) for north-star values and phased plans. Session snapshot for agents: [docs/CURRENT.md](docs/CURRENT.md).

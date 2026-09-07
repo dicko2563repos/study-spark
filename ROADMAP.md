@@ -16,7 +16,7 @@ When discussing features, concepts, or UX using coding examples (or any other si
 
 The study agent, memory files, and courses support these values; they are not the primary quiz intelligence loop.
 
-## Current foundation (as of ~0.2.6)
+## Current foundation (as of ~0.2.9)
 
 Already shipping (as of ~0.2.9):
 

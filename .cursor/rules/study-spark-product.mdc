@@ -1,0 +1,18 @@
+---
+description: Study Spark product north star, interpretation rule, and how to reload project memory
+alwaysApply: true
+---
+
+# Study Spark — product memory
+
+Read [docs/CURRENT.md](docs/CURRENT.md) at the start of substantive work, then [ROADMAP.md](ROADMAP.md) if the task is larger than a bugfix.
+
+**Interpretation:** Topic-specific examples (coding or otherwise) are illustrations only. Design for almost anyone learning almost anything. Prefer topic / concept / skill boundary over subject-locked copy.
+
+**North star:** edge-of-knowledge quizzes; user control of difficulty and concept scope; never stall or bore; open-ended topics only after a solid plan (Phase D).
+
+**Agent chat** is not an app controller until Phase B. Do not imply the chat can change difficulty unless that control exists.
+
+**Phases:** A (selection cooldown — shipping ~0.2.9) → B (learner controls) → B2 (in-quiz coach line) → C (edge + Test my knowledge) → D (open topics). Do not skip D’s design bar.
+
+When shipping a version, update `docs/CURRENT.md` (version, next step, pitfalls) in the same change.

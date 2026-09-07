@@ -1,0 +1,14 @@
+---
+description: Study Spark stack, shipping, and known engineering pitfalls
+alwaysApply: true
+---
+
+# Study Spark — engineering
+
+- **Stack:** Kotlin, Jetpack Compose, Room, WorkManager. Path: `/home/dicko/Projects/study-spark`. GitHub: `dicko2563repos/study-spark`.
+- **AI:** Gemini primary (`gemini-3.6-flash`), Groq failover (`openai/gpt-oss-20b`). After Gemini 429, reuse the same `LlmRouter` instance and skip Gemini for the process. Do not hardcode retired Groq Llama 3.3 IDs.
+- **Ready count ≠ unique/new.** Recycle flips `consumed` back to ready. Prefer unseen + cooldowns in `StudyRepository.nextQuizPick`.
+- **Quiz generation** is one JSON item per call. Semantic near-duplicates are not filtered yet. `contentHash` must not include a timestamp if we later dedupe by prompt.
+- **Clean install** wipes encrypted keys; `EncryptedSharedPreferences` runs in `Application.onCreate`.
+- **Ship:** bump `versionCode`/`versionName`, copy APK to `dist/StudySpark-<ver>-debug.apk` (`*.apk` is gitignored — `git add -f`), update README install links. Push via `./scripts/git-push.sh main` only when the user asks. Never commit `.secrets/`.
+- **Verify UI** in a browser or by describing what could not be device-tested.
