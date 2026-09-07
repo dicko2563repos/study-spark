@@ -48,7 +48,7 @@ fun SettingsScreen(
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Topics", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Difficulty applies to newly generated quizzes. Avoid-list skips matching ready items when alternatives exist. On Quiz, Not familiar with this adds tags to this list and eases the topic one step. Don't ask this again retires that item only. Ask the agent to make questions harder or easier to update enabled topics.",
+            "Difficulty applies to newly generated quizzes. Quiz prefers ready items near your level when it has a choice, and may ease or stretch the next pick after a streak of misses or easy hits — it does not change this setting by itself. Avoid-list skips matching ready items when alternatives exist. On Quiz, Not familiar with this adds tags to this list and eases the topic one step. Don't ask this again retires that item only. Ask the agent to make questions harder or easier to update enabled topics.",
             style = MaterialTheme.typography.bodyMedium
         )
         topics.forEach { topic ->

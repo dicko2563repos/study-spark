@@ -8,6 +8,7 @@ import com.studyspark.app.ai.llm.LlmRouter
 import com.studyspark.app.ai.memory.MemoryFileStore
 import com.studyspark.app.ai.planner.QuizPlanner
 import com.studyspark.app.ai.verify.VerificationResult
+import com.studyspark.app.domain.EdgePick
 import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.domain.QuizPick
 import com.studyspark.app.domain.TopicDifficulty
@@ -70,18 +71,10 @@ class StudyRepository(
             !violatesScope(item, scopeByTopic[item.topicId].orEmpty())
         }
         val pool = inScope.ifEmpty { cooled }
-        val unseen = pool.filter { it.id !in lastByItem }
-        val item = (if (unseen.isNotEmpty()) unseen else pool).random()
+        val topicsById = enabledTopics.associateBy { it.topicId }
+        val pick = EdgePick.choose(pool, topicsById, lastByItem, recent) ?: return null
         rateLimitTracker.recordCacheHit()
-        val last = lastByItem[item.id]
-        val reason = when {
-            last == null -> "New question"
-            last.outcome == "incorrect" -> "Reviewing a miss"
-            last.outcome == "unknown" -> "Reviewing something you skipped"
-            last.outcome == "unfamiliar" -> "Reviewing a concept you flagged"
-            else -> "Practice"
-        }
-        return QuizPick(item, reason)
+        return pick
     }
 
     private fun quizzesSince(itemId: String, recentNewestFirst: List<QuizAttemptEntity>): Int {
