@@ -78,6 +78,7 @@ class StudyRepository(
             last == null -> "New question"
             last.outcome == "incorrect" -> "Reviewing a miss"
             last.outcome == "unknown" -> "Reviewing something you skipped"
+            last.outcome == "unfamiliar" -> "Reviewing a concept you flagged"
             else -> "Practice"
         }
         return QuizPick(item, reason)
@@ -99,6 +100,7 @@ class StudyRepository(
         "correct" -> CORRECT_COOLDOWN_QUIZZES
         "incorrect" -> INCORRECT_COOLDOWN_QUIZZES
         "unknown" -> UNKNOWN_COOLDOWN_QUIZZES
+        "unfamiliar", "retired" -> RETIRED_COOLDOWN_QUIZZES
         else -> CORRECT_COOLDOWN_QUIZZES
     }
 
@@ -113,21 +115,13 @@ class StudyRepository(
             selectedIndex == item.correctIndex -> QuizAnswerOutcome.CORRECT
             else -> QuizAnswerOutcome.INCORRECT
         }
-        db.quizAttemptDao().insert(
-            QuizAttemptEntity(
-                quizItemId = item.id,
-                topicId = item.topicId,
-                selectedIndex = if (unknown) -1 else selectedIndex,
-                correct = outcome == QuizAnswerOutcome.CORRECT,
-                outcome = when (outcome) {
-                    QuizAnswerOutcome.CORRECT -> "correct"
-                    QuizAnswerOutcome.INCORRECT -> "incorrect"
-                    QuizAnswerOutcome.UNKNOWN -> "unknown"
-                },
-                latencyMs = latencyMs
-            )
+        recordAttempt(
+            item = item,
+            selectedIndex = if (unknown) -1 else selectedIndex,
+            latencyMs = latencyMs,
+            outcome = outcome,
+            retire = false
         )
-        db.quizItemDao().markConsumed(item.id)
         when (outcome) {
             QuizAnswerOutcome.CORRECT -> updateSkill(item.topicId, correct = true)
             QuizAnswerOutcome.INCORRECT -> {
@@ -141,11 +135,95 @@ class StudyRepository(
                     )
                 )
             }
-            QuizAnswerOutcome.UNKNOWN -> Unit // no skill penalty, no mistake entry
+            QuizAnswerOutcome.UNKNOWN,
+            QuizAnswerOutcome.UNFAMILIAR,
+            QuizAnswerOutcome.RETIRED -> Unit
         }
         bumpStreak()
         memory.exportAll()
         return outcome
+    }
+
+    /** Skip this idea without revealing the answer; avoid similar items and ease this topic. */
+    suspend fun markNotFamiliar(item: QuizItemEntity, latencyMs: Long): QuizAnswerOutcome {
+        recordAttempt(
+            item = item,
+            selectedIndex = -1,
+            latencyMs = latencyMs,
+            outcome = QuizAnswerOutcome.UNFAMILIAR,
+            retire = true
+        )
+        appendAvoidTags(item)
+        easeTopicOneStep(item.topicId)
+        bumpStreak()
+        memory.exportAll()
+        return QuizAnswerOutcome.UNFAMILIAR
+    }
+
+    /** Never recycle this quiz item. Does not reveal the answer or change skill. */
+    suspend fun retireQuizItem(item: QuizItemEntity, latencyMs: Long): QuizAnswerOutcome {
+        recordAttempt(
+            item = item,
+            selectedIndex = -1,
+            latencyMs = latencyMs,
+            outcome = QuizAnswerOutcome.RETIRED,
+            retire = true
+        )
+        bumpStreak()
+        memory.exportAll()
+        return QuizAnswerOutcome.RETIRED
+    }
+
+    private suspend fun recordAttempt(
+        item: QuizItemEntity,
+        selectedIndex: Int,
+        latencyMs: Long,
+        outcome: QuizAnswerOutcome,
+        retire: Boolean
+    ) {
+        db.quizAttemptDao().insert(
+            QuizAttemptEntity(
+                quizItemId = item.id,
+                topicId = item.topicId,
+                selectedIndex = selectedIndex,
+                correct = outcome == QuizAnswerOutcome.CORRECT,
+                outcome = when (outcome) {
+                    QuizAnswerOutcome.CORRECT -> "correct"
+                    QuizAnswerOutcome.INCORRECT -> "incorrect"
+                    QuizAnswerOutcome.UNKNOWN -> "unknown"
+                    QuizAnswerOutcome.UNFAMILIAR -> "unfamiliar"
+                    QuizAnswerOutcome.RETIRED -> "retired"
+                },
+                latencyMs = latencyMs
+            )
+        )
+        if (retire) {
+            db.quizItemDao().markRetired(item.id)
+        } else {
+            db.quizItemDao().markConsumed(item.id)
+        }
+    }
+
+    private fun conceptTags(item: QuizItemEntity): List<String> =
+        runCatching {
+            json.parseToJsonElement(item.conceptTagsJson).jsonArray.map { it.jsonPrimitive.content }
+        }.getOrDefault(emptyList())
+
+    private suspend fun appendAvoidTags(item: QuizItemEntity) {
+        val tags = conceptTags(item)
+        if (tags.isEmpty()) return
+        val topic = db.topicSkillDao().byTopic(item.topicId) ?: return
+        db.topicSkillDao().update(
+            topic.copy(scopeNotes = TopicDifficulty.mergeAvoidNotes(topic.scopeNotes, tags))
+        )
+    }
+
+    private suspend fun easeTopicOneStep(topicId: String) {
+        val topic = db.topicSkillDao().byTopic(topicId) ?: return
+        val next = TopicDifficulty.oneStepEasier(topic.difficultyPref)
+        if (next != TopicDifficulty.normalize(topic.difficultyPref)) {
+            db.topicSkillDao().update(topic.copy(difficultyPref = next))
+        }
     }
 
     suspend fun setTopicEnabled(topicId: String, enabled: Boolean) {
@@ -316,7 +394,10 @@ class StudyRepository(
             val lastByItem = recent.distinctBy { it.quizItemId }.associateBy { it.quizItemId }
             val cooled = db.quizItemDao().consumedForTopics(topicIds).filter { item ->
                 val last = lastByItem[item.id]
-                last == null || quizzesSince(item.id, recent) >= cooldownGap(last.outcome)
+                last == null || (
+                    last.outcome !in RETIRED_OUTCOMES &&
+                        quizzesSince(item.id, recent) >= cooldownGap(last.outcome)
+                    )
             }
             val toRevive = cooled.shuffled().take(recycleLimit).map { it.id }
             if (toRevive.isNotEmpty()) {
@@ -483,5 +564,8 @@ class StudyRepository(
         const val CORRECT_COOLDOWN_QUIZZES = 12
         const val INCORRECT_COOLDOWN_QUIZZES = 4
         const val UNKNOWN_COOLDOWN_QUIZZES = 3
+        /** Retired / not-familiar items should never return via cooldown math. */
+        const val RETIRED_COOLDOWN_QUIZZES = 10_000
+        private val RETIRED_OUTCOMES = setOf("unfamiliar", "retired")
     }
 }

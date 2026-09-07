@@ -200,6 +200,26 @@ class MainActivity : ComponentActivity() {
                                         quizStatus = repo.ensureQuizSupply()
                                     }
                                 },
+                                onNotFamiliar = {
+                                    val item = quizItem ?: return@QuizScreen
+                                    scope.launch {
+                                        val latency = System.currentTimeMillis() - quizStartedAt
+                                        quizOutcome = repo.markNotFamiliar(item, latency)
+                                        revealed = true
+                                        nudge = repo.nextStudyNudge()
+                                        quizStatus = repo.ensureQuizSupply()
+                                    }
+                                },
+                                onDontAskAgain = {
+                                    val item = quizItem ?: return@QuizScreen
+                                    scope.launch {
+                                        val latency = System.currentTimeMillis() - quizStartedAt
+                                        quizOutcome = repo.retireQuizItem(item, latency)
+                                        revealed = true
+                                        nudge = repo.nextStudyNudge()
+                                        quizStatus = repo.ensureQuizSupply()
+                                    }
+                                },
                                 onGenerateMore = {
                                     scope.launch {
                                         quizGenerating = true

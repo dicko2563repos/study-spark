@@ -67,7 +67,9 @@ data class QuizItemEntity(
     val contentHash: String,
     val whyThisQuestion: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val consumed: Boolean = false
+    val consumed: Boolean = false,
+    /** Retired items are never recycled into the ready bank. */
+    val retired: Boolean = false
 )
 
 @Entity(tableName = "quiz_attempts")
@@ -77,7 +79,7 @@ data class QuizAttemptEntity(
     val topicId: String,
     val selectedIndex: Int,
     val correct: Boolean,
-    /** correct | incorrect | unknown */
+    /** correct | incorrect | unknown | unfamiliar | retired */
     val outcome: String = "incorrect",
     val latencyMs: Long,
     val answeredAt: Long = System.currentTimeMillis()

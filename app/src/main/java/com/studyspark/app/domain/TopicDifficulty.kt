@@ -15,6 +15,27 @@ object TopicDifficulty {
             .map { it.trim().lowercase() }
             .filter { it.length >= 3 }
 
+    fun mergeAvoidNotes(existing: String, extras: List<String>, maxLen: Int = 280): String {
+        val parts = existing.split(',', ';', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toMutableList()
+        val seen = parts.map { it.lowercase() }.toMutableSet()
+        extras.forEach { raw ->
+            val phrase = raw.trim()
+            if (phrase.length >= 3 && phrase.lowercase() !in seen) {
+                parts.add(phrase)
+                seen.add(phrase.lowercase())
+            }
+        }
+        return parts.joinToString(", ").take(maxLen)
+    }
+
+    fun oneStepEasier(pref: String): String = when (normalize(pref)) {
+        STRETCH -> STANDARD
+        else -> GENTLE
+    }
+
     fun promptHint(pref: String, level: Float): String {
         val band = level.coerceIn(0.5f, 5f)
         return when (normalize(pref)) {

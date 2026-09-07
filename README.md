@@ -7,14 +7,14 @@ Personal Android study companion: short adaptive quizzes, skill tracking, course
 This is a **debug** build for personal use — not from the Play Store.
 
 1. On your phone, allow installing apps from unknown sources / your browser/file manager.
-2. Open: https://github.com/dicko2563repos/study-spark/blob/main/dist/StudySpark-0.3.0-debug.apk
+2. Open: https://github.com/dicko2563repos/study-spark/blob/main/dist/StudySpark-0.3.1-debug.apk
 3. Click **Download raw file**.
 4. Open the file and install.
 
 Or with a USB cable and `adb`:
 
 ```bash
-adb install -r StudySpark-0.3.0-debug.apk
+adb install -r StudySpark-0.3.1-debug.apk
 ```
 
 ## What's in this first build
@@ -25,6 +25,7 @@ adb install -r StudySpark-0.3.0-debug.apk
 - **AI infra**: Gemini primary + Groq failover (`LlmRouter`), encrypted API keys, memory files under app storage `files/memory/`, quiz cache, rate-limit ledger
 - **Gentle notifications** via WorkManager (customizable interval / heads-up style in Settings)
 - **Study agent** chat that stores preference-like instructions for future quizzes
+- **Quiz steering:** Not familiar with this (avoid similar + easier); Don’t ask this again (retire that item); I don’t know still shows the explanation
 - **Courses** manual CRUD with `provider` / `externalId` / `syncMeta` reserved for later sync
 - **`verify-service/`** placeholder for the local PC sandbox verifier (next step)
 

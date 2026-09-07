@@ -38,6 +38,8 @@ fun QuizScreen(
     onSelect: (Int) -> Unit,
     onSubmit: () -> Unit,
     onDontKnow: () -> Unit,
+    onNotFamiliar: () -> Unit,
+    onDontAskAgain: () -> Unit,
     onGenerateMore: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit
@@ -119,6 +121,18 @@ fun QuizScreen(
         }
         if (!revealed) {
             OutlinedButton(
+                onClick = onNotFamiliar,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Not familiar with this")
+            }
+            OutlinedButton(
+                onClick = onDontAskAgain,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Don't ask this again")
+            }
+            OutlinedButton(
                 onClick = onDontKnow,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -135,15 +149,23 @@ fun QuizScreen(
                 Text(if (generating) "Generating…" else "Generate more quizzes")
             }
         } else {
+            val showExplanation = outcome == QuizAnswerOutcome.CORRECT ||
+                outcome == QuizAnswerOutcome.INCORRECT ||
+                outcome == QuizAnswerOutcome.UNKNOWN
             Text(
                 when (outcome) {
                     QuizAnswerOutcome.CORRECT -> "Correct — nice work."
                     QuizAnswerOutcome.UNKNOWN -> "No worries — here's how this works."
+                    QuizAnswerOutcome.UNFAMILIAR ->
+                        "We'll skip this idea for now. Similar questions will be avoided, and this topic goes a step easier if it wasn't already gentle."
+                    QuizAnswerOutcome.RETIRED -> "This question won't come up again."
                     QuizAnswerOutcome.INCORRECT, null -> "Not quite — here's the idea."
                 },
                 style = MaterialTheme.typography.titleLarge
             )
-            Text(item.explanation, style = MaterialTheme.typography.bodyLarge)
+            if (showExplanation) {
+                Text(item.explanation, style = MaterialTheme.typography.bodyLarge)
+            }
             Spacer(Modifier.height(8.dp))
             Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) { Text("Next question") }
             OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done for now") }

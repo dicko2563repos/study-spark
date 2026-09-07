@@ -16,13 +16,15 @@ When discussing features, concepts, or UX using coding examples (or any other si
 
 The study agent, memory files, and courses support these values; they are not the primary quiz intelligence loop.
 
-## Current foundation (as of ~0.3.0)
+## Current foundation (as of ~0.3.1)
 
-Already shipping (as of ~0.2.9):
+Already shipping (as of ~0.3.1):
 
 - Seed + AI knowledge quizzes, recycle, rate-limit-aware top-up, hourly prefetch toward ~40 ready
 - Selection prefers unseen items; cooldown after answers (longer after correct, shorter after miss/skip); recycle only when no new AI landed
-- Per-topic skill level / accuracy; attempt outcomes (correct / incorrect / unknown); mistakes; agent preferences
+- Per-topic skill level / accuracy; attempt outcomes (correct / incorrect / unknown / unfamiliar / retired); mistakes; agent preferences
+- Per-topic Gentle / Standard / Stretch plus a comma-separated avoid-list; planner and pick path honor them
+- Quiz actions: Not familiar with this (retire + avoid tags + one-step easier, no answer reveal); Don’t ask this again (retire this item); I don’t know (reveal explanation, no skill penalty)
 - Room entities that anticipate more intelligence but are lightly used today: `concept_mastery`, concept tags on quiz items
 
 Gaps vs the north star:
@@ -79,7 +81,7 @@ Primary touchpoints: quiz pick path, attempt history, recycle rules.
 - Keep progression intact: one coach reply max per question; no chat history on the quiz screen (full Agent tab remains for longer conversations)
 - Domain-agnostic copy and intents
 
-Fits after or alongside Phase B; can start with quick actions only before free text.
+Fits after or alongside Phase B; **0.3.1 ships the two quick actions** (not familiar / don’t ask again). Free-text coach line and “Explain this” stay later — I don’t know already shows the stored explanation.
 
 ### Phase C — Edge targeting + “Test my knowledge”
 

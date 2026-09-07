@@ -64,7 +64,7 @@ interface QuizItemDao {
     @Query(
         """
         SELECT * FROM quiz_items
-        WHERE consumed = 0 AND verified = 1 AND topicId IN (:topicIds)
+        WHERE consumed = 0 AND retired = 0 AND verified = 1 AND topicId IN (:topicIds)
         ORDER BY RANDOM()
         LIMIT 1
         """
@@ -74,7 +74,7 @@ interface QuizItemDao {
     @Query(
         """
         SELECT * FROM quiz_items
-        WHERE consumed = 0 AND verified = 1 AND topicId IN (:topicIds)
+        WHERE consumed = 0 AND retired = 0 AND verified = 1 AND topicId IN (:topicIds)
         """
     )
     suspend fun readyForTopics(topicIds: List<String>): List<QuizItemEntity>
@@ -82,7 +82,7 @@ interface QuizItemDao {
     @Query(
         """
         SELECT * FROM quiz_items
-        WHERE consumed = 1 AND verified = 1 AND topicId IN (:topicIds)
+        WHERE consumed = 1 AND retired = 0 AND verified = 1 AND topicId IN (:topicIds)
         """
     )
     suspend fun consumedForTopics(topicIds: List<String>): List<QuizItemEntity>
@@ -93,10 +93,10 @@ interface QuizItemDao {
     @Query("SELECT * FROM quiz_items WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): QuizItemEntity?
 
-    @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND verified = 1")
+    @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND retired = 0 AND verified = 1")
     fun observeReadyCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND verified = 1")
+    @Query("SELECT COUNT(*) FROM quiz_items WHERE consumed = 0 AND retired = 0 AND verified = 1")
     suspend fun readyCount(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -104,6 +104,9 @@ interface QuizItemDao {
 
     @Query("UPDATE quiz_items SET consumed = 1 WHERE id = :id")
     suspend fun markConsumed(id: String)
+
+    @Query("UPDATE quiz_items SET consumed = 1, retired = 1 WHERE id = :id")
+    suspend fun markRetired(id: String)
 
     /**
      * Reactivate a random sample of consumed quizzes for enabled topics.
@@ -114,7 +117,7 @@ interface QuizItemDao {
         UPDATE quiz_items SET consumed = 0
         WHERE id IN (
             SELECT id FROM quiz_items
-            WHERE consumed = 1 AND verified = 1 AND topicId IN (:topicIds)
+            WHERE consumed = 1 AND retired = 0 AND verified = 1 AND topicId IN (:topicIds)
             ORDER BY RANDOM()
             LIMIT :limit
         )
