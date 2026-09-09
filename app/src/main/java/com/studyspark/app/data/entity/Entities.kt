@@ -82,7 +82,9 @@ data class QuizAttemptEntity(
     /** correct | incorrect | unknown | unfamiliar | retired */
     val outcome: String = "incorrect",
     val latencyMs: Long,
-    val answeredAt: Long = System.currentTimeMillis()
+    val answeredAt: Long = System.currentTimeMillis(),
+    /** Groups a practice run or Test my knowledge session. Empty on pre-0.3.4 rows. */
+    val sessionId: String = ""
 )
 
 @Entity(tableName = "courses")

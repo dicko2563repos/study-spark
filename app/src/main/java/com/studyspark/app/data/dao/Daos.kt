@@ -55,6 +55,15 @@ interface ConceptMasteryDao {
     @Query("SELECT * FROM concept_mastery WHERE topicId = :topicId")
     suspend fun forTopic(topicId: String): List<ConceptMasteryEntity>
 
+    @Query("SELECT * FROM concept_mastery WHERE topicId = :topicId AND conceptId = :conceptId LIMIT 1")
+    suspend fun byConcept(topicId: String, conceptId: String): ConceptMasteryEntity?
+
+    @Query("SELECT * FROM concept_mastery ORDER BY mastery ASC, timesSeen DESC")
+    fun observeAll(): Flow<List<ConceptMasteryEntity>>
+
+    @Query("SELECT * FROM concept_mastery WHERE timesSeen >= 1 ORDER BY mastery ASC LIMIT :limit")
+    suspend fun weakest(limit: Int): List<ConceptMasteryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ConceptMasteryEntity)
 }
@@ -158,6 +167,9 @@ interface QuizAttemptDao {
 
     @Query("SELECT COUNT(*) FROM quiz_attempts WHERE correct = 1")
     fun observeCorrectCount(): Flow<Int>
+
+    @Query("SELECT * FROM quiz_attempts WHERE sessionId = :sessionId ORDER BY answeredAt ASC")
+    suspend fun forSession(sessionId: String): List<QuizAttemptEntity>
 }
 
 @Dao
@@ -246,6 +258,9 @@ interface AgentMemoryDao {
 interface MistakeDao {
     @Query("SELECT * FROM mistakes WHERE resolved = 0 ORDER BY createdAt DESC")
     fun observeOpen(): Flow<List<MistakeEntity>>
+
+    @Query("SELECT * FROM mistakes WHERE resolved = 0 ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recentOpen(limit: Int = 12): List<MistakeEntity>
 
     @Insert
     suspend fun insert(mistake: MistakeEntity): Long

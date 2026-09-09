@@ -20,7 +20,9 @@ object EdgePick {
         pool: List<QuizItemEntity>,
         topics: Map<String, TopicSkillEntity>,
         lastByItem: Map<String, QuizAttemptEntity>,
-        recent: List<QuizAttemptEntity>
+        recent: List<QuizAttemptEntity>,
+        testMode: Boolean = false,
+        itemIsWeak: (QuizItemEntity) -> Boolean = { false }
     ): QuizPick? {
         if (pool.isEmpty()) return null
         val scored = pool.map { item ->
@@ -29,8 +31,9 @@ object EdgePick {
             val (accuracy, samples) = rollingAccuracy(item.topicId, recent)
             val base = baseTargetBand(topic)
             val target = calibratedTargetBand(topic, accuracy, samples)
-            val score = score(item, target, last)
-            Scored(item, last, base, target, accuracy, samples, score)
+            val weak = testMode && itemIsWeak(item)
+            val score = score(item, target, last, testMode = testMode, weak = weak)
+            Scored(item, last, base, target, accuracy, samples, score, weak)
         }
         val best = scored.minOf { it.score }
         val nearBest = scored.filter { it.score <= best + 2 }
@@ -81,7 +84,9 @@ object EdgePick {
     internal fun score(
         item: QuizItemEntity,
         target: Int,
-        last: QuizAttemptEntity?
+        last: QuizAttemptEntity?,
+        testMode: Boolean = false,
+        weak: Boolean = false
     ): Int {
         val distance = abs(item.skillBand.coerceIn(1, 5) - target)
         var s = distance * 3
@@ -95,6 +100,8 @@ object EdgePick {
                 else -> 1
             }
         }
+        if (testMode && weak) s -= 4
+        if (testMode && last?.outcome == "incorrect") s -= 1
         return s
     }
 
@@ -102,6 +109,7 @@ object EdgePick {
         val last = pick.last
         val bandGap = abs(pick.item.skillBand.coerceIn(1, 5) - pick.target)
         return when {
+            pick.weak -> "Checking a weak spot"
             last?.outcome == "incorrect" -> "Reviewing a miss"
             last?.outcome == "unknown" -> "Reviewing something you skipped"
             last?.outcome == "unfamiliar" -> "Reviewing a concept you flagged"
@@ -127,6 +135,7 @@ object EdgePick {
         val target: Int,
         val accuracy: Float?,
         val samples: Int,
-        val score: Int
+        val score: Int,
+        val weak: Boolean = false
     )
 }

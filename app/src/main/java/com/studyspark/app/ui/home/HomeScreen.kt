@@ -25,6 +25,7 @@ fun HomeScreen(
     readyCount: Int,
     nudge: String?,
     onStartQuiz: () -> Unit,
+    onTestKnowledge: () -> Unit,
     onOpenAgent: () -> Unit,
     onOpenCourses: () -> Unit
 ) {
@@ -60,6 +61,9 @@ fun HomeScreen(
             Spacer(Modifier.weight(1f))
             Button(onClick = onStartQuiz, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                 Text("Start a quiz")
+            }
+            OutlinedButton(onClick = onTestKnowledge, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                Text("Test my knowledge")
             }
             OutlinedButton(onClick = onOpenAgent, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                 Text("Ask the study agent")

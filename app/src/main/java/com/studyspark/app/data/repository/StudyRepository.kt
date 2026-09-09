@@ -8,12 +8,15 @@ import com.studyspark.app.ai.llm.LlmRouter
 import com.studyspark.app.ai.memory.MemoryFileStore
 import com.studyspark.app.ai.planner.QuizPlanner
 import com.studyspark.app.ai.verify.VerificationResult
+import com.studyspark.app.domain.ConceptTags
 import com.studyspark.app.domain.EdgePick
 import com.studyspark.app.domain.QuizAnswerOutcome
 import com.studyspark.app.domain.QuizPick
+import com.studyspark.app.domain.SessionRecap
 import com.studyspark.app.domain.TopicDifficulty
 import com.studyspark.app.data.db.StudySparkDatabase
 import com.studyspark.app.data.entity.AgentMessageEntity
+import com.studyspark.app.data.entity.ConceptMasteryEntity
 import com.studyspark.app.data.entity.CourseEntity
 import com.studyspark.app.data.entity.MistakeEntity
 import com.studyspark.app.data.entity.ModuleEntity
@@ -49,11 +52,12 @@ class StudyRepository(
     fun observeModules(courseId: Long): Flow<List<ModuleEntity>> = db.moduleDao().observeForCourse(courseId)
     fun observeAgentMessages(): Flow<List<AgentMessageEntity>> = db.agentMessageDao().observeAll()
     fun observePreferences() = db.quizPreferenceDao().observeActive()
+    fun observeConcepts() = db.conceptMasteryDao().observeAll()
     fun observeRecentAttempts() = db.quizAttemptDao().observeRecent()
 
     suspend fun nextQuiz(): QuizItemEntity? = nextQuizPick()?.item
 
-    suspend fun nextQuizPick(): QuizPick? {
+    suspend fun nextQuizPick(testMode: Boolean = false): QuizPick? {
         val enabledTopics = db.topicSkillDao().enabled()
         val enabled = enabledTopics.map { it.topicId }
         if (enabled.isEmpty()) return null
@@ -72,7 +76,24 @@ class StudyRepository(
         }
         val pool = inScope.ifEmpty { cooled }
         val topicsById = enabledTopics.associateBy { it.topicId }
-        val pick = EdgePick.choose(pool, topicsById, lastByItem, recent) ?: return null
+        val weakIds = if (testMode) {
+            db.conceptMasteryDao().weakest(24)
+                .filter { it.mastery < WEAK_MASTERY }
+                .map { "${it.topicId}:${it.conceptId}" }
+                .toSet()
+        } else {
+            emptySet()
+        }
+        val pick = EdgePick.choose(
+            pool = pool,
+            topics = topicsById,
+            lastByItem = lastByItem,
+            recent = recent,
+            testMode = testMode,
+            itemIsWeak = { item ->
+                conceptRefs(item).any { ref -> "${item.topicId}:${ref.id}" in weakIds }
+            }
+        ) ?: return null
         rateLimitTracker.recordCacheHit()
         return pick
     }
@@ -101,7 +122,8 @@ class StudyRepository(
         item: QuizItemEntity,
         selectedIndex: Int,
         latencyMs: Long,
-        unknown: Boolean = false
+        unknown: Boolean = false,
+        sessionId: String = ""
     ): QuizAnswerOutcome {
         val outcome = when {
             unknown -> QuizAnswerOutcome.UNKNOWN
@@ -113,7 +135,8 @@ class StudyRepository(
             selectedIndex = if (unknown) -1 else selectedIndex,
             latencyMs = latencyMs,
             outcome = outcome,
-            retire = false
+            retire = false,
+            sessionId = sessionId
         )
         when (outcome) {
             QuizAnswerOutcome.CORRECT -> updateSkill(item.topicId, correct = true)
@@ -122,7 +145,7 @@ class StudyRepository(
                 db.mistakeDao().insert(
                     MistakeEntity(
                         topicId = item.topicId,
-                        conceptId = null,
+                        conceptId = conceptRefs(item).firstOrNull()?.id,
                         quizItemId = item.id,
                         note = item.prompt
                     )
@@ -138,13 +161,18 @@ class StudyRepository(
     }
 
     /** Skip this idea without revealing the answer; avoid similar items and ease this topic. */
-    suspend fun markNotFamiliar(item: QuizItemEntity, latencyMs: Long): QuizAnswerOutcome {
+    suspend fun markNotFamiliar(
+        item: QuizItemEntity,
+        latencyMs: Long,
+        sessionId: String = ""
+    ): QuizAnswerOutcome {
         recordAttempt(
             item = item,
             selectedIndex = -1,
             latencyMs = latencyMs,
             outcome = QuizAnswerOutcome.UNFAMILIAR,
-            retire = true
+            retire = true,
+            sessionId = sessionId
         )
         appendAvoidTags(item)
         easeTopicOneStep(item.topicId)
@@ -154,17 +182,61 @@ class StudyRepository(
     }
 
     /** Never recycle this quiz item. Does not reveal the answer or change skill. */
-    suspend fun retireQuizItem(item: QuizItemEntity, latencyMs: Long): QuizAnswerOutcome {
+    suspend fun retireQuizItem(
+        item: QuizItemEntity,
+        latencyMs: Long,
+        sessionId: String = ""
+    ): QuizAnswerOutcome {
         recordAttempt(
             item = item,
             selectedIndex = -1,
             latencyMs = latencyMs,
             outcome = QuizAnswerOutcome.RETIRED,
-            retire = true
+            retire = true,
+            sessionId = sessionId
         )
         bumpStreak()
         memory.exportAll()
         return QuizAnswerOutcome.RETIRED
+    }
+
+    suspend fun sessionRecap(sessionId: String): SessionRecap {
+        if (sessionId.isBlank()) {
+            return SessionRecap(0, 0, 0, 0, emptyList(), emptyList())
+        }
+        val attempts = db.quizAttemptDao().forSession(sessionId)
+        val correct = attempts.count { it.outcome == "correct" }
+        val incorrect = attempts.count { it.outcome == "incorrect" }
+        val skipped = attempts.count { it.outcome == "unknown" || it.outcome == "unfamiliar" }
+        val tagHits = mutableMapOf<String, Int>()
+        val tagMisses = mutableMapOf<String, Int>()
+        attempts.forEach { attempt ->
+            val item = db.quizItemDao().byId(attempt.quizItemId) ?: return@forEach
+            val labels = conceptRefs(item).map { it.label }
+            when (attempt.outcome) {
+                "correct" -> labels.forEach { tagHits[it] = (tagHits[it] ?: 0) + 1 }
+                "incorrect", "unknown", "unfamiliar" ->
+                    labels.forEach { tagMisses[it] = (tagMisses[it] ?: 0) + 1 }
+            }
+        }
+        val strengths = tagHits.entries
+            .filter { (it.value) > (tagMisses[it.key] ?: 0) }
+            .sortedByDescending { it.value }
+            .map { it.key }
+            .take(4)
+        val gaps = tagMisses.entries
+            .sortedByDescending { it.value }
+            .map { it.key }
+            .filter { it !in strengths }
+            .take(4)
+        return SessionRecap(
+            answered = attempts.size,
+            correct = correct,
+            incorrect = incorrect,
+            skipped = skipped,
+            strengths = strengths,
+            gaps = gaps
+        )
     }
 
     private suspend fun recordAttempt(
@@ -172,7 +244,8 @@ class StudyRepository(
         selectedIndex: Int,
         latencyMs: Long,
         outcome: QuizAnswerOutcome,
-        retire: Boolean
+        retire: Boolean,
+        sessionId: String
     ) {
         db.quizAttemptDao().insert(
             QuizAttemptEntity(
@@ -187,13 +260,17 @@ class StudyRepository(
                     QuizAnswerOutcome.UNFAMILIAR -> "unfamiliar"
                     QuizAnswerOutcome.RETIRED -> "retired"
                 },
-                latencyMs = latencyMs
+                latencyMs = latencyMs,
+                sessionId = sessionId
             )
         )
         if (retire) {
             db.quizItemDao().markRetired(item.id)
         } else {
             db.quizItemDao().markConsumed(item.id)
+        }
+        if (outcome != QuizAnswerOutcome.RETIRED) {
+            updateConceptMastery(item, outcome)
         }
     }
 
@@ -202,12 +279,46 @@ class StudyRepository(
             json.parseToJsonElement(item.conceptTagsJson).jsonArray.map { it.jsonPrimitive.content }
         }.getOrDefault(emptyList())
 
+    private fun conceptRefs(item: QuizItemEntity): List<ConceptTags.Ref> =
+        ConceptTags.normalizeAll(conceptTags(item))
+
+    private suspend fun updateConceptMastery(item: QuizItemEntity, outcome: QuizAnswerOutcome) {
+        val now = System.currentTimeMillis()
+        conceptRefs(item).forEach { ref ->
+            val existing = db.conceptMasteryDao().byConcept(item.topicId, ref.id)
+            val seen = (existing?.timesSeen ?: 0) + 1
+            val hits = (existing?.timesCorrect ?: 0) + if (outcome == QuizAnswerOutcome.CORRECT) 1 else 0
+            val base = existing?.mastery ?: 0.35f
+            val mastery = when (outcome) {
+                QuizAnswerOutcome.CORRECT -> min(1f, base + 0.12f)
+                QuizAnswerOutcome.INCORRECT -> max(0f, base - 0.15f)
+                QuizAnswerOutcome.UNKNOWN -> max(0f, base - 0.04f)
+                QuizAnswerOutcome.UNFAMILIAR -> max(0f, base - 0.08f)
+                QuizAnswerOutcome.RETIRED -> base
+            }
+            val nextReview = if (outcome == QuizAnswerOutcome.UNFAMILIAR) now + 7L * 24 * 60 * 60 * 1000 else existing?.nextReviewAt
+            db.conceptMasteryDao().upsert(
+                (existing ?: ConceptMasteryEntity(
+                    topicId = item.topicId,
+                    conceptId = ref.id,
+                    label = ref.label
+                )).copy(
+                    label = ref.label,
+                    mastery = mastery,
+                    timesSeen = seen,
+                    timesCorrect = hits,
+                    nextReviewAt = nextReview
+                )
+            )
+        }
+    }
+
     private suspend fun appendAvoidTags(item: QuizItemEntity) {
-        val tags = conceptTags(item)
-        if (tags.isEmpty()) return
+        val labels = conceptRefs(item).map { it.label }
+        if (labels.isEmpty()) return
         val topic = db.topicSkillDao().byTopic(item.topicId) ?: return
         db.topicSkillDao().update(
-            topic.copy(scopeNotes = TopicDifficulty.mergeAvoidNotes(topic.scopeNotes, tags))
+            topic.copy(scopeNotes = TopicDifficulty.mergeAvoidNotes(topic.scopeNotes, labels))
         )
     }
 
@@ -559,6 +670,8 @@ class StudyRepository(
         const val UNKNOWN_COOLDOWN_QUIZZES = 3
         /** Retired / not-familiar items should never return via cooldown math. */
         const val RETIRED_COOLDOWN_QUIZZES = 10_000
+        const val TEST_SESSION_SIZE = 10
+        const val WEAK_MASTERY = 0.45f
         private val RETIRED_OUTCOMES = setOf("unfamiliar", "retired")
     }
 }

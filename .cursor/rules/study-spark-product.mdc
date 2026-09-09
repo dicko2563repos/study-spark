@@ -17,4 +17,4 @@ Read [docs/CURRENT.md](docs/CURRENT.md) at the start of substantive work, then [
 
 When shipping a version, update `docs/CURRENT.md` (version, next step, pitfalls) in the same change.
 
-**Next phase:** C2 (Test my knowledge) after 0.3.3 named skill stages.
+**Next phase:** D (user-defined topics, after a design pass) — C2 Test my knowledge shipped in 0.3.4.

@@ -102,8 +102,11 @@ class MemoryFileStore(
     }
 
     private suspend fun exportMistakes() {
-        // Keep a compact placeholder file; detailed mistakes stream via Room UI
-        write("mistakes.json", "[]\n")
+        val rows = db.mistakeDao().recentOpen(8)
+        val body = rows.joinToString(",\n") { row ->
+            """  {"topicId":"${row.topicId}","conceptId":${jsonString(row.conceptId.orEmpty())},"note":${jsonString(row.note.take(120))}}"""
+        }
+        write("mistakes.json", "[\n$body\n]\n")
     }
 
     private suspend fun exportAgentState() {

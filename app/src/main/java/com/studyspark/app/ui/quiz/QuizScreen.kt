@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.domain.QuizAnswerOutcome
+import com.studyspark.app.domain.SessionRecap
 import com.studyspark.app.domain.SkillStage
 
 @Composable
@@ -43,7 +44,11 @@ fun QuizScreen(
     onDontAskAgain: () -> Unit,
     onGenerateMore: () -> Unit,
     onNext: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    recap: SessionRecap? = null,
+    sessionLabel: String? = null,
+    nextLabel: String = "Next question",
+    onSeeResults: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -52,7 +57,37 @@ fun QuizScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Quiz", style = MaterialTheme.typography.headlineMedium)
+        Text(if (recap != null) "Test recap" else "Quiz", style = MaterialTheme.typography.headlineMedium)
+        sessionLabel?.takeIf { it.isNotBlank() }?.let {
+            AssistChip(onClick = {}, label = { Text(it) })
+        }
+
+        if (recap != null) {
+            Text(
+                "This is from this session only — not a full map of what you know.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                "${recap.correct} correct · ${recap.incorrect} missed · ${recap.skipped} skipped · ${recap.answered} answered",
+                style = MaterialTheme.typography.titleLarge
+            )
+            if (recap.strengths.isNotEmpty()) {
+                Text("Felt stronger", style = MaterialTheme.typography.titleMedium)
+                recap.strengths.forEach { Text("• $it") }
+            }
+            if (recap.gaps.isNotEmpty()) {
+                Text("Worth another look", style = MaterialTheme.typography.titleMedium)
+                recap.gaps.forEach { Text("• $it") }
+            }
+            if (recap.strengths.isEmpty() && recap.gaps.isEmpty()) {
+                Text(
+                    "Not enough tagged concepts yet to split strengths and gaps. Keep answering — tags fill in as you go.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+            return
+        }
 
         statusMessage?.takeIf { it.isNotBlank() }?.let { message ->
             val isWarning = message.contains("failed", ignoreCase = true) ||
@@ -87,6 +122,11 @@ fun QuizScreen(
                 }
                 Button(onClick = onGenerateMore, enabled = !generating, modifier = Modifier.fillMaxWidth()) {
                     Text("Generate more quizzes")
+                }
+                if (onSeeResults != null) {
+                    Button(onClick = onSeeResults, modifier = Modifier.fillMaxWidth()) {
+                        Text("See results so far")
+                    }
                 }
             }
             OutlinedButton(onClick = onBack) { Text("Back") }
@@ -169,7 +209,7 @@ fun QuizScreen(
                 Text(item.explanation, style = MaterialTheme.typography.bodyLarge)
             }
             Spacer(Modifier.height(8.dp))
-            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) { Text("Next question") }
+            Button(onClick = onNext, modifier = Modifier.fillMaxWidth()) { Text(nextLabel) }
             OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done for now") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

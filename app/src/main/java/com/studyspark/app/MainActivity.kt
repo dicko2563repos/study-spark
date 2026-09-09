@@ -37,6 +37,7 @@ import androidx.navigation.compose.rememberNavController
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.data.repository.StudyRepository
 import com.studyspark.app.domain.QuizAnswerOutcome
+import com.studyspark.app.domain.SessionRecap
 import com.studyspark.app.notify.QuizScheduler
 import com.studyspark.app.ui.agent.AgentScreen
 import com.studyspark.app.ui.courses.CoursesScreen
@@ -47,6 +48,7 @@ import com.studyspark.app.ui.quiz.QuizScreen
 import com.studyspark.app.ui.settings.SettingsScreen
 import com.studyspark.app.ui.theme.StudySparkTheme
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
@@ -72,6 +74,7 @@ class MainActivity : ComponentActivity() {
                 val ready by repo.observeReadyCount().collectAsStateWithLifecycle(initialValue = 0)
                 val courses by repo.observeCourses().collectAsStateWithLifecycle(initialValue = emptyList())
                 val messages by repo.observeAgentMessages().collectAsStateWithLifecycle(initialValue = emptyList())
+                val concepts by repo.observeConcepts().collectAsStateWithLifecycle(initialValue = emptyList())
                 val settings by settingsRepo.settings.collectAsStateWithLifecycle(initialValue = settingsRepo.current())
                 var nudge by remember { mutableStateOf<String?>(null) }
                 var quizItem by remember { mutableStateOf<QuizItemEntity?>(null) }
@@ -84,15 +87,47 @@ class MainActivity : ComponentActivity() {
                 var quizGenerating by remember { mutableStateOf(false) }
                 var quizStatus by remember { mutableStateOf<String?>(null) }
                 var quizPickReason by remember { mutableStateOf<String?>(null) }
+                var quizSessionId by remember { mutableStateOf<String?>(null) }
+                var quizTestMode by remember { mutableStateOf(false) }
+                var quizSessionAnswered by remember { mutableStateOf(0) }
+                var quizRecap by remember { mutableStateOf<SessionRecap?>(null) }
+
+                fun newSessionId(): String = UUID.randomUUID().toString()
+
+                fun startPractice() {
+                    quizSessionId = newSessionId()
+                    quizTestMode = false
+                    quizSessionAnswered = 0
+                    quizRecap = null
+                    quizItem = null
+                    revealed = false
+                }
+
+                fun startTest() {
+                    quizSessionId = newSessionId()
+                    quizTestMode = true
+                    quizSessionAnswered = 0
+                    quizRecap = null
+                    quizItem = null
+                    revealed = false
+                }
+
+                fun currentSessionId(): String {
+                    val existing = quizSessionId
+                    if (existing != null) return existing
+                    val created = newSessionId()
+                    quizSessionId = created
+                    return created
+                }
 
                 suspend fun loadNextQuiz(topUpIfEmpty: Boolean = true) {
-                    var pick = repo.nextQuizPick()
+                    var pick = repo.nextQuizPick(testMode = quizTestMode)
                     if (pick == null && topUpIfEmpty) {
                         quizGenerating = true
                         quizStatus = "Generating quizzes…"
                         try {
                             quizStatus = repo.ensureQuizSupply()
-                            pick = repo.nextQuizPick()
+                            pick = repo.nextQuizPick(testMode = quizTestMode)
                         } finally {
                             quizGenerating = false
                         }
@@ -109,6 +144,19 @@ class MainActivity : ComponentActivity() {
                     revealed = false
                     quizOutcome = null
                     quizStartedAt = System.currentTimeMillis()
+                }
+
+                suspend fun recordAndReveal(block: suspend (sessionId: String) -> QuizAnswerOutcome) {
+                    val sid = currentSessionId()
+                    quizOutcome = block(sid)
+                    revealed = true
+                    if (quizTestMode) quizSessionAnswered += 1
+                    nudge = repo.nextStudyNudge()
+                    quizStatus = repo.ensureQuizSupply()
+                }
+
+                suspend fun openRecap() {
+                    quizRecap = repo.sessionRecap(currentSessionId())
                 }
 
                 LaunchedEffect(Unit) {
@@ -153,17 +201,32 @@ class MainActivity : ComponentActivity() {
                                 streakDays = profile?.studyStreakDays ?: 0,
                                 readyCount = ready,
                                 nudge = nudge,
-                                onStartQuiz = { nav.navigate(Dest.Quiz.route) },
+                                onStartQuiz = {
+                                    startPractice()
+                                    nav.navigate(Dest.Quiz.route)
+                                },
+                                onTestKnowledge = {
+                                    startTest()
+                                    nav.navigate(Dest.Quiz.route)
+                                },
                                 onOpenAgent = { nav.navigate(Dest.Agent.route) },
                                 onOpenCourses = { nav.navigate(Dest.Courses.route) }
                             )
                         }
                         composable(Dest.Quiz.route) {
-                            LaunchedEffect(Unit) {
+                            LaunchedEffect(quizSessionId, quizRecap) {
+                                if (quizRecap != null) return@LaunchedEffect
+                                if (quizSessionId == null) {
+                                    quizSessionId = newSessionId()
+                                    quizTestMode = false
+                                    return@LaunchedEffect
+                                }
                                 if (quizItem == null || revealed) {
                                     loadNextQuiz(topUpIfEmpty = true)
                                 }
                             }
+                            val testDone = quizTestMode &&
+                                quizSessionAnswered >= StudyRepository.TEST_SESSION_SIZE
                             QuizScreen(
                                 item = quizItem,
                                 choices = choices,
@@ -173,51 +236,64 @@ class MainActivity : ComponentActivity() {
                                 generating = quizGenerating,
                                 statusMessage = quizStatus,
                                 pickReason = quizPickReason,
+                                recap = quizRecap,
+                                sessionLabel = if (quizTestMode) {
+                                    "Test ${quizSessionAnswered.coerceAtMost(StudyRepository.TEST_SESSION_SIZE)} / ${StudyRepository.TEST_SESSION_SIZE}"
+                                } else {
+                                    null
+                                },
+                                nextLabel = if (testDone) "See results" else "Next question",
+                                onSeeResults = if (quizTestMode && quizSessionAnswered > 0) {
+                                    { scope.launch { openRecap() } }
+                                } else {
+                                    null
+                                },
                                 onSelect = { selected = it },
                                 onSubmit = {
                                     val item = quizItem ?: return@QuizScreen
                                     val choice = selected ?: return@QuizScreen
                                     scope.launch {
-                                        val latency = System.currentTimeMillis() - quizStartedAt
-                                        quizOutcome = repo.answerQuiz(item, choice, latency)
-                                        revealed = true
-                                        nudge = repo.nextStudyNudge()
-                                        quizStatus = repo.ensureQuizSupply()
+                                        recordAndReveal { sid ->
+                                            repo.answerQuiz(item, choice, System.currentTimeMillis() - quizStartedAt, sessionId = sid)
+                                        }
                                     }
                                 },
                                 onDontKnow = {
                                     val item = quizItem ?: return@QuizScreen
                                     scope.launch {
-                                        val latency = System.currentTimeMillis() - quizStartedAt
-                                        quizOutcome = repo.answerQuiz(
-                                            item = item,
-                                            selectedIndex = -1,
-                                            latencyMs = latency,
-                                            unknown = true
-                                        )
-                                        revealed = true
-                                        nudge = repo.nextStudyNudge()
-                                        quizStatus = repo.ensureQuizSupply()
+                                        recordAndReveal { sid ->
+                                            repo.answerQuiz(
+                                                item = item,
+                                                selectedIndex = -1,
+                                                latencyMs = System.currentTimeMillis() - quizStartedAt,
+                                                unknown = true,
+                                                sessionId = sid
+                                            )
+                                        }
                                     }
                                 },
                                 onNotFamiliar = {
                                     val item = quizItem ?: return@QuizScreen
                                     scope.launch {
-                                        val latency = System.currentTimeMillis() - quizStartedAt
-                                        quizOutcome = repo.markNotFamiliar(item, latency)
-                                        revealed = true
-                                        nudge = repo.nextStudyNudge()
-                                        quizStatus = repo.ensureQuizSupply()
+                                        recordAndReveal { sid ->
+                                            repo.markNotFamiliar(
+                                                item,
+                                                System.currentTimeMillis() - quizStartedAt,
+                                                sessionId = sid
+                                            )
+                                        }
                                     }
                                 },
                                 onDontAskAgain = {
                                     val item = quizItem ?: return@QuizScreen
                                     scope.launch {
-                                        val latency = System.currentTimeMillis() - quizStartedAt
-                                        quizOutcome = repo.retireQuizItem(item, latency)
-                                        revealed = true
-                                        nudge = repo.nextStudyNudge()
-                                        quizStatus = repo.ensureQuizSupply()
+                                        recordAndReveal { sid ->
+                                            repo.retireQuizItem(
+                                                item,
+                                                System.currentTimeMillis() - quizStartedAt,
+                                                sessionId = sid
+                                            )
+                                        }
                                     }
                                 },
                                 onGenerateMore = {
@@ -234,10 +310,24 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNext = {
                                     scope.launch {
-                                        loadNextQuiz(topUpIfEmpty = true)
+                                        if (quizTestMode && quizSessionAnswered >= StudyRepository.TEST_SESSION_SIZE) {
+                                            openRecap()
+                                        } else {
+                                            loadNextQuiz(topUpIfEmpty = true)
+                                        }
                                     }
                                 },
-                                onBack = { nav.navigate(Dest.Home.route) }
+                                onBack = {
+                                    if (quizRecap != null) {
+                                        quizRecap = null
+                                        quizTestMode = false
+                                        quizSessionAnswered = 0
+                                        quizItem = null
+                                        nav.navigate(Dest.Home.route)
+                                    } else {
+                                        nav.navigate(Dest.Home.route)
+                                    }
+                                }
                             )
                         }
                         composable(Dest.Courses.route) {
@@ -265,7 +355,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Dest.Progress.route) {
-                            ProgressScreen(topics = topics)
+                            ProgressScreen(topics = topics, concepts = concepts)
                         }
                         composable(Dest.Settings.route) {
                             SettingsScreen(
