@@ -16,14 +16,14 @@ When discussing features, concepts, or UX using coding examples (or any other si
 
 The study agent, memory files, and courses support these values; they are not the primary quiz intelligence loop.
 
-## Current foundation (as of ~0.3.2)
+## Current foundation (as of ~0.3.3)
 
-Already shipping (as of ~0.3.2):
+Already shipping (as of ~0.3.3):
 
 - Seed + AI knowledge quizzes, recycle, rate-limit-aware top-up, hourly prefetch toward ~40 ready
 - Selection prefers unseen items and items near the topic skill band; cooldown after answers; recycle only when no new AI landed; rolling accuracy can nudge the next pick without changing Settings
 - Per-topic skill level / accuracy; attempt outcomes (correct / incorrect / unknown / unfamiliar / retired); mistakes; agent preferences
-- Per-topic Gentle / Standard / Stretch plus a comma-separated avoid-list; planner and pick path honor them
+- Quiz items carry skillBand 1–5 as named learning stages (First contact → Edge); planner aims at a typical next step; Gentle / Standard / Stretch still clamps generation; avoid-list still filters the pick path
 - Quiz actions: Not familiar with this (retire + avoid tags + one-step easier, no answer reveal); Don’t ask this again (retire this item); I don’t know (reveal explanation, no skill penalty)
 - Room entities that anticipate more intelligence but are lightly used today: `concept_mastery`, concept tags on quiz items
 
@@ -92,7 +92,7 @@ Fits after or alongside Phase B; **0.3.1 ships the two quick actions** (not fami
 - **Test my knowledge:** session mode that prioritizes prior shaky / due concepts, denser review, clearer end summary (strengths / gaps)
 - Optional session length (e.g. 10 questions) and a simple post-session skill snapshot
 
-Depends on Phase A–B data quality (history + concept scope). **0.3.2 ships default-quiz edge pick (C1)** — band + miss review + rolling-accuracy nudge. **Test my knowledge (C2) is not built.**
+Depends on Phase A–B data quality (history + concept scope). **0.3.2 ships default-quiz edge pick (C1).** **0.3.3 names the five skill bands as typical-learning stages and asks generation for a next step.** **Test my knowledge (C2) is not built.**
 
 ### Phase D — Open-ended learning topics (after a solid design pass)
 

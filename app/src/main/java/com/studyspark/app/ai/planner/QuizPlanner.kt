@@ -9,6 +9,7 @@ import com.studyspark.app.ai.verify.LightQuizVerifier
 import com.studyspark.app.ai.verify.VerificationResult
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.data.entity.TopicSkillEntity
+import com.studyspark.app.domain.SkillStage
 import com.studyspark.app.domain.TopicDifficulty
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
@@ -37,6 +38,7 @@ class QuizPlanner(
             "Do not repeat or paraphrase these existing questions:\n" +
                 recentPrompts.take(8).joinToString("\n") { "- $it" }
         }
+        val range = TopicDifficulty.requestedBandRange(topic.difficultyPref, topic.level)
         val prompt = """
             Create ONE short multiple-choice quiz item as JSON with fields:
             topicId, format, skillBand (1-5), prompt, codeSnippet (null), choices (3-4 strings),
@@ -48,9 +50,11 @@ class QuizPlanner(
             - codeSnippet must be null, or a tiny illustrative snippet that is NOT required to compute the answer.
             - topicId MUST be exactly "${topic.topicId}".
             - Topic focus: ${topic.displayName}, stored skill level ~ ${"%.1f".format(topic.level)}.
+            - ${SkillStage.plannerLegend()}
             - ${TopicDifficulty.promptHint(topic.difficultyPref, topic.level)}
             - $avoidBlock
-            - Ask a genuinely different question from typical intro drills.
+            - Ask the typical NEXT step at the required stage — not a random harder item, and not another identical intro drill.
+            - whyThisQuestion: one sentence on why this is a fair next step at that stage for this learner.
             $recentBlock
             Return JSON only, no markdown fences.
         """.trimIndent()
@@ -66,14 +70,7 @@ class QuizPlanner(
             )
         )
         val draft = json.decodeFromString<GeneratedQuizDraft>(extractJsonObject(response.text))
-        val band = when (TopicDifficulty.normalize(topic.difficultyPref)) {
-            TopicDifficulty.GENTLE -> draft.skillBand.coerceIn(1, 2)
-            TopicDifficulty.STRETCH -> draft.skillBand.coerceIn(
-                minOf(5, maxOf(3, topic.level.toInt() + 1)),
-                5
-            )
-            else -> draft.skillBand.coerceIn(1, 5)
-        }
+        val band = draft.skillBand.coerceIn(range.first, range.last)
         val safe = draft.copy(
             topicId = topic.topicId,
             format = if (draft.format in setOf("knowledge", "purpose")) draft.format else "knowledge",

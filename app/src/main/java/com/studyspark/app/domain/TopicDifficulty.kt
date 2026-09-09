@@ -36,15 +36,32 @@ object TopicDifficulty {
         else -> GENTLE
     }
 
+    fun requestedBandRange(pref: String, level: Float): IntRange {
+        val target = kotlin.math.round(level.coerceIn(0.5f, 5f)).toInt().coerceIn(1, 5)
+        return when (normalize(pref)) {
+            GENTLE -> 1..2
+            STRETCH -> {
+                val lo = minOf(5, maxOf(3, target + 1))
+                lo..5
+            }
+            else -> {
+                val lo = (target - 1).coerceAtLeast(1)
+                val hi = (target + 1).coerceAtMost(5)
+                lo..hi
+            }
+        }
+    }
+
     fun promptHint(pref: String, level: Float): String {
-        val band = level.coerceIn(0.5f, 5f)
+        val range = requestedBandRange(pref, level)
+        val stageHint = range.joinToString(" / ") { "${it} ${SkillStage.label(it)}" }
         return when (normalize(pref)) {
             GENTLE ->
-                "Difficulty: GENTLE. skillBand MUST be 1 or 2. Simple wording, common facts, no trick options."
+                "Preference: GENTLE. skillBand MUST be ${range.first}–${range.last} ($stageHint). Simple wording, common facts, no trick options."
             STRETCH ->
-                "Difficulty: STRETCH. skillBand ${minOf(5, (band + 1f).toInt())}–5. Harder than comfort but one fair right answer. Do not require unpublished trivia."
+                "Preference: STRETCH. skillBand MUST be ${range.first}–${range.last} ($stageHint). Harder than comfort but one fair right answer. Do not require unpublished trivia."
             else ->
-                "Difficulty: STANDARD. skillBand near learner level ${"%.1f".format(band)} (about ${(band.toInt()).coerceIn(1, 5)})."
+                "Preference: STANDARD. skillBand MUST be ${range.first}–${range.last} ($stageHint), near learner level ${"%.1f".format(level.coerceIn(0.5f, 5f))}."
         }
     }
 }

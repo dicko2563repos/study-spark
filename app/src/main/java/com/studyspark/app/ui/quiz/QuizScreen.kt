@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.studyspark.app.data.entity.QuizItemEntity
 import com.studyspark.app.domain.QuizAnswerOutcome
+import com.studyspark.app.domain.SkillStage
 
 @Composable
 fun QuizScreen(
@@ -96,6 +97,7 @@ fun QuizScreen(
         pickReason?.takeIf { it.isNotBlank() }?.let {
             AssistChip(onClick = {}, label = { Text(it) })
         }
+        AssistChip(onClick = {}, label = { Text(SkillStage.label(item.skillBand)) })
         item.whyThisQuestion?.let {
             Text("Why this question: $it", style = MaterialTheme.typography.bodyMedium)
         }
